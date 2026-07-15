@@ -1,0 +1,40 @@
+#!/bin/sh
+# Block live secrets from entering git history.
+#
+# Exists because real keys landed in the committed .env.example template three
+# times in one session. .env.local is gitignored; .env.example is not, and the
+# two sit next to each other with near-identical contents. That is a trap, so
+# this checks rather than relying on nobody ever mis-clicking.
+#
+# Bypass (only if you are certain): git commit --no-verify
+
+fail=0
+
+# Patterns for keys that are live rather than placeholders.
+# Deliberately anchored to real key shapes so "sk-ant-..." style placeholders pass.
+patterns='
+atria-sk_[A-Za-z0-9]{16,}
+sk-ant-api[0-9]{2}-[A-Za-z0-9_-]{20,}
+AIza[A-Za-z0-9_-]{30,}
+eyJhbGciOi[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{10,}
+'
+
+for file in $(git diff --cached --name-only --diff-filter=ACM); do
+  [ -f "$file" ] || continue
+  for pat in $patterns; do
+    if git show ":$file" 2>/dev/null | grep -Eq "$pat"; then
+      echo "BLOCKED: $file contains what looks like a live secret."
+      echo "         pattern: $pat"
+      echo "         Move it to .env.local (gitignored) and use a placeholder here."
+      fail=1
+    fi
+  done
+done
+
+# Belt and braces: .env.local must never be staged at all.
+if git diff --cached --name-only | grep -qx '.env.local'; then
+  echo "BLOCKED: .env.local is staged. It holds live secrets and must stay untracked."
+  fail=1
+fi
+
+exit $fail

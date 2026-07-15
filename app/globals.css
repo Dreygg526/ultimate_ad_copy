@@ -1,0 +1,797 @@
+/* Teardown — "the proofing desk".
+ *
+ * Ported from the approved mockup (CLAUDE.md § Design). Token values are
+ * authoritative; if you change one, change it in the mockup too.
+ *
+ * Font families come from next/font (see app/layout.tsx), which self-hosts
+ * Archivo and IBM Plex at build time — no runtime CDN request.
+ */
+
+/* Single-theme light, deliberately. A dark surround changes how you read
+ * creative — the same crop looks warmer and more contrasty on black, and you'd
+ * be grading against the chrome. The dark/light selectors below are pinned to
+ * the same values so an OS or browser theme toggle cannot invert the tool into
+ * a worse one. Do not add a dark mode. */
+:root,
+:root[data-theme='dark'],
+:root[data-theme='light'] {
+  color-scheme: light;
+
+  --proof: #dcded7;
+  --surface: #f2f3ef;
+  --surface-2: #e7e9e2;
+  --ink: #14171a;
+  --ink-soft: #5a6169;
+  --ink-faint: #8a9099;
+  --rule: #b9bdb5;
+  --rule-soft: #cbcec6;
+  /* grease pencil — ANNOTATION ONLY, never chrome */
+  --pencil: #d62e1f;
+  --pencil-wash: #f6ddd9;
+  --stamp: #2c4c8c;
+  --stamp-wash: #dce3f2;
+  --go: #2f6b45;
+  --go-wash: #dbe8df;
+
+  --sans: var(--font-plex-sans), ui-sans-serif, system-ui, sans-serif;
+  --display: var(--font-archivo), var(--sans);
+  --mono: var(--font-plex-mono), ui-monospace, 'SF Mono', Menlo, monospace;
+
+  --rail: 232px;
+  --shadow-lift: 0 1px 2px rgba(20, 23, 26, 0.1), 0 6px 16px -8px rgba(20, 23, 26, 0.22);
+  --shadow-pin: 0 2px 4px rgba(20, 23, 26, 0.14), 0 14px 32px -12px rgba(20, 23, 26, 0.34);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--proof);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+.sheet-title,
+.note-h,
+.clip-brand {
+  text-wrap: balance;
+}
+
+/* ---------- shared primitives ---------- */
+
+.eyebrow {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  margin: 0;
+}
+
+.num {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.btn {
+  font-family: var(--display);
+  font-weight: 600;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 8px 14px;
+  border: 1px solid var(--ink);
+  background: var(--ink);
+  color: var(--surface);
+  border-radius: 2px;
+  cursor: pointer;
+  transition: transform 0.1s ease, background 0.12s ease;
+}
+.btn:hover {
+  background: #2b3035;
+}
+.btn:active {
+  transform: translateY(1px);
+}
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.btn.is-quiet {
+  background: transparent;
+  color: var(--ink);
+  border-color: var(--rule);
+}
+.btn.is-quiet:hover {
+  background: var(--surface-2);
+  border-color: var(--ink-soft);
+}
+
+.btn.is-go {
+  background: var(--go);
+  border-color: var(--go);
+  color: #fff;
+}
+.btn.is-go:hover {
+  background: #255738;
+}
+
+:focus-visible {
+  outline: 2px solid var(--stamp);
+  outline-offset: 2px;
+}
+
+.tag {
+  display: inline-block;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border-radius: 2px;
+  background: var(--surface-2);
+  color: var(--ink-soft);
+  border: 1px solid var(--rule-soft);
+  white-space: nowrap;
+}
+.tag.is-live {
+  background: var(--go-wash);
+  color: var(--go);
+  border-color: #b9d3c3;
+}
+.tag.is-dead {
+  background: var(--surface-2);
+  color: var(--ink-faint);
+}
+.tag.is-stamp {
+  background: var(--stamp-wash);
+  color: var(--stamp);
+  border-color: #b6c4e4;
+}
+.tag.is-pencil {
+  background: var(--pencil-wash);
+  color: var(--pencil);
+  border-color: #edbdb6;
+}
+
+/* ---------- top bar ---------- */
+
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  gap: 28px;
+  padding: 0 20px;
+  height: 52px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--rule);
+}
+
+.wordmark {
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: 15px;
+  letter-spacing: -0.02em;
+  text-transform: uppercase;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: inherit;
+  text-decoration: none;
+}
+/* the grease-pencil dot: the one mark on the wordmark */
+.wordmark::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--pencil);
+  flex: none;
+}
+
+.nav {
+  display: flex;
+  gap: 2px;
+  margin-right: auto;
+}
+
+.nav a {
+  font-family: var(--display);
+  font-weight: 600;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  border-radius: 2px;
+  padding: 6px 10px;
+  text-decoration: none;
+}
+.nav a:hover {
+  background: var(--surface-2);
+  color: var(--ink);
+}
+.nav a.is-on {
+  background: var(--ink);
+  color: var(--surface);
+}
+
+.whoami {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-soft);
+}
+.avatar {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--stamp);
+  color: #fff;
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 10px;
+  display: grid;
+  place-items: center;
+}
+
+/* ---------- workbench shell ---------- */
+
+.workbench {
+  display: grid;
+  grid-template-columns: var(--rail) 1fr;
+  min-height: calc(100vh - 52px);
+}
+
+.rail {
+  border-right: 1px solid var(--rule);
+  padding: 18px 16px 40px;
+  background: var(--proof);
+}
+
+.rail-group {
+  margin-bottom: 24px;
+}
+.rail-group > .eyebrow {
+  margin-bottom: 8px;
+}
+
+.rail-note {
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--ink-faint);
+  border-left: 2px solid var(--rule);
+  padding-left: 8px;
+}
+
+/* ---------- rail controls ---------- */
+
+.source {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 5px 0;
+  border-bottom: 1px solid var(--rule-soft);
+  text-decoration: none;
+  color: inherit;
+}
+.source:hover .source-name {
+  color: var(--pencil);
+}
+.source-name {
+  font-size: 13px;
+  font-weight: 500;
+  margin-right: auto;
+}
+.source-count {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-faint);
+}
+.source.is-tracked .source-name::before {
+  content: '';
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--go);
+  margin-right: 6px;
+  vertical-align: middle;
+}
+.source.is-on .source-name {
+  color: var(--pencil);
+  font-weight: 600;
+}
+
+.opt {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  font-size: 13px;
+  cursor: pointer;
+  user-select: none;
+  color: inherit;
+  text-decoration: none;
+}
+.opt input {
+  accent-color: var(--ink);
+  margin: 0;
+}
+.opt .num {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--ink-faint);
+}
+
+/* ---------- grid ---------- */
+
+.sheet {
+  padding: 18px 22px 60px;
+}
+
+.sheet-head {
+  display: flex;
+  align-items: flex-end;
+  gap: 16px;
+  padding-bottom: 12px;
+  border-bottom: 2px solid var(--ink);
+  margin-bottom: 18px;
+}
+.sheet-title {
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: 26px;
+  letter-spacing: -0.025em;
+  margin: 0;
+  line-height: 1;
+}
+.sheet-sub {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-soft);
+  margin-right: auto;
+}
+
+.sortbar {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+.sortbar .eyebrow {
+  margin-right: 4px;
+}
+.chip {
+  font-family: var(--mono);
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: 2px;
+  border: 1px solid var(--rule);
+  background: transparent;
+  color: var(--ink-soft);
+  cursor: pointer;
+  text-decoration: none;
+}
+.chip:hover {
+  border-color: var(--ink-soft);
+  color: var(--ink);
+}
+.chip.is-on {
+  background: var(--ink);
+  color: var(--surface);
+  border-color: var(--ink);
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(228px, 1fr));
+  gap: 18px;
+}
+
+/* a card is a clipping pinned to the desk */
+.clip {
+  background: var(--surface);
+  border: 1px solid var(--rule-soft);
+  border-radius: 2px;
+  box-shadow: var(--shadow-lift);
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  transition: box-shadow 0.14s ease, transform 0.14s ease;
+  text-align: left;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  text-decoration: none;
+}
+.clip:hover {
+  box-shadow: var(--shadow-pin);
+  transform: translateY(-2px);
+}
+
+.clip-art {
+  position: relative;
+  aspect-ratio: 1 / 1;
+  overflow: hidden;
+  background: var(--surface-2);
+}
+.clip-art img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.clip-art .no-art {
+  display: grid;
+  place-items: center;
+  height: 100%;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--ink-faint);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+/* The number is a within-brand percentile, not reach. */
+.score {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 2;
+  background: var(--surface);
+  border: 1px solid var(--ink);
+  border-radius: 2px;
+  padding: 2px 5px 1px;
+  font-family: var(--mono);
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+.score.is-hot {
+  background: var(--ink);
+  color: var(--surface);
+}
+
+.clip-flag {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 2;
+}
+
+.clip-meta {
+  padding: 9px 10px 10px;
+  border-top: 1px solid var(--rule-soft);
+}
+.clip-brand {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 13px;
+  letter-spacing: -0.01em;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.clip-brand .tag {
+  margin-left: auto;
+}
+.clip-title {
+  font-size: 12px;
+  color: var(--ink-soft);
+  margin-top: 3px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.clip-run {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--ink-faint);
+  margin-top: 3px;
+}
+
+/* ---------- the gate ---------- */
+
+.gate {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+
+.gate-card {
+  width: 100%;
+  max-width: 340px;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  padding: 28px;
+  box-shadow: var(--shadow-lift);
+}
+
+.field {
+  display: block;
+  margin-bottom: 14px;
+}
+.field > .eyebrow {
+  display: block;
+  margin-bottom: 5px;
+}
+.field input {
+  width: 100%;
+  font-family: var(--sans);
+  font-size: 14px;
+  color: var(--ink);
+  background: var(--proof);
+  border: 1px solid var(--rule);
+  border-radius: 2px;
+  padding: 8px 10px;
+}
+.field input:focus {
+  border-color: var(--ink-soft);
+}
+
+.gate-error {
+  font-size: 12px;
+  color: var(--pencil);
+  margin: 0 0 10px;
+}
+
+/* ---------- THE SIGNATURE: grease-pencil marks on the creative ---------- */
+
+.mark {
+  position: absolute;
+  z-index: 5;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 2px solid var(--pencil);
+  background: rgba(255, 255, 255, 0.94);
+  color: var(--pencil);
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 600;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  padding: 0;
+  transition: transform 0.13s ease, background 0.13s ease, color 0.13s ease;
+}
+.mark::before {
+  /* the pencil's ring — hand-drawn circles never close cleanly */
+  content: '';
+  position: absolute;
+  inset: -5px;
+  border: 1.5px solid var(--pencil);
+  border-radius: 50%;
+  opacity: 0;
+  clip-path: polygon(0 0, 100% 0, 100% 78%, 62% 78%, 62% 100%, 0 100%);
+  transition: opacity 0.13s ease;
+}
+.mark:hover,
+.mark.is-lit {
+  transform: scale(1.14);
+  background: var(--pencil);
+  color: #fff;
+}
+.mark:hover::before,
+.mark.is-lit::before {
+  opacity: 1;
+}
+
+/* ---------- the proof spread: creative left, annotations right ---------- */
+
+.spread {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 400px;
+  gap: 0;
+  align-items: start;
+}
+
+.proof-stage {
+  padding: 40px;
+  display: grid;
+  place-items: center;
+  min-height: calc(100vh - 104px);
+  /* the desk surface, faintly gridded like a layout pad */
+  background-image:
+    linear-gradient(var(--rule-soft) 1px, transparent 1px),
+    linear-gradient(90deg, var(--rule-soft) 1px, transparent 1px);
+  background-size: 28px 28px;
+  background-position: -1px -1px;
+}
+
+.proof {
+  position: relative;
+  width: min(460px, 100%);
+  background: var(--surface);
+  box-shadow: var(--shadow-pin);
+  border-radius: 2px;
+}
+/* The creative sets its own height — ad art is not reliably square, and
+   cropping it to fit would move every mark off its target. */
+.proof-art {
+  position: relative;
+  overflow: hidden;
+  line-height: 0;
+}
+.proof-art img {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+.proof-art .no-art {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 1/1;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-faint);
+  background: var(--surface-2);
+  line-height: 1.4;
+}
+.proof-cap {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--ink-faint);
+  padding: 7px 10px;
+  border-top: 1px solid var(--rule-soft);
+  display: flex;
+  gap: 10px;
+}
+.proof-cap .spacer { margin-left: auto; }
+
+/* the annotation panel */
+.notes {
+  border-left: 1px solid var(--rule);
+  background: var(--surface);
+  min-height: calc(100vh - 104px);
+  padding: 22px 22px 60px;
+}
+
+.scoreblock {
+  border-bottom: 2px solid var(--ink);
+  padding-bottom: 14px;
+  margin-bottom: 6px;
+}
+.scoreblock-row { display: flex; align-items: flex-start; gap: 12px; }
+.bignum {
+  font-family: var(--mono);
+  font-size: 46px;
+  font-weight: 600;
+  line-height: 0.9;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+}
+.scorefacts { padding-top: 3px; }
+.scorefacts div { font-family: var(--mono); font-size: 11px; color: var(--ink-soft); }
+.scorefacts .lead { color: var(--ink); }
+
+/* honesty note — this score is a proxy, and the UI says so */
+.proxy {
+  margin-top: 10px;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--ink-soft);
+  background: var(--surface-2);
+  border-left: 2px solid var(--rule);
+  padding: 7px 9px;
+  border-radius: 0 2px 2px 0;
+}
+.proxy b { font-weight: 600; color: var(--ink); }
+
+.notes-sec { margin-top: 22px; }
+.notes-sec > .eyebrow {
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--rule);
+  margin-bottom: 2px;
+}
+
+.note {
+  display: grid;
+  grid-template-columns: 24px 1fr;
+  gap: 10px;
+  padding: 11px 8px 11px 8px;
+  border-bottom: 1px solid var(--rule-soft);
+  cursor: pointer;
+  margin-left: -8px;
+  border-radius: 2px;
+  transition: background 0.13s ease;
+  text-align: left;
+  width: calc(100% + 8px);
+  background: none;
+  border-left: 0;
+  border-right: 0;
+  border-top: 0;
+  font: inherit;
+  color: inherit;
+}
+.note:hover,
+.note.is-lit { background: var(--pencil-wash); }
+
+.note-n {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--pencil);
+  border: 1.5px solid var(--pencil);
+  border-radius: 50%;
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  margin-top: 1px;
+}
+.note-h {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.note-b {
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--ink-soft);
+  margin-top: 2px;
+}
+
+.by {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  margin-top: 14px;
+}
+
+@media (max-width: 1100px) {
+  .spread { grid-template-columns: 1fr; }
+  .notes { border-left: 0; border-top: 1px solid var(--rule); min-height: 0; }
+  .proof-stage { min-height: 0; padding: 26px; }
+}
+
+/* ---------- the proof bar ---------- */
+
+.proofbar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 22px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--rule);
+  position: sticky;
+  top: 52px;
+  z-index: 30;
+}
+.backlink {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-soft);
+  background: none;
+  border: 0;
+  cursor: pointer;
+  padding: 4px 0;
+  text-decoration: none;
+}
+/* The mockup hovers this to --pencil. CLAUDE.md scopes pencil to annotation
+   only, never chrome, and a back link is chrome — so it darkens instead. */
+.backlink:hover { color: var(--ink); }
+.proofbar-title {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 15px;
+  letter-spacing: -0.01em;
+}
+.proofbar .spacer { margin-left: auto; }
