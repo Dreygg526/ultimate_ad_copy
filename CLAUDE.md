@@ -133,6 +133,27 @@ Invite-only. `ai_support@thestandardlab.com` is admin and the only role that can
 invite. Invite by email; no self-signup; no public read. Anyone without an
 invite gets nothing even with the URL. Enforce in RLS, not just in the UI.
 
+Managed from the **Settings** screen (`/settings`):
+
+- **Invite by email** (admin only) → `inviteUserByEmail` + a `profiles` row (RLS
+  keys off profiles, so the row is what actually grants access). Resend / remove
+  are there too; an admin can't remove themselves or another admin.
+- **Password**: everyone can set their own from Settings (`updateUser`, no email
+  round-trip). Forgot-password on `/signin` sends a reset link.
+- **Sign out** lives in the top bar (`TopBar` → `signOut` action).
+- Every emailed link (invite, reset) returns through `/auth/confirm`, which
+  exchanges the token and forwards to `/auth/set-password`. `proxy.ts` lets
+  `/auth/*` through unauthenticated because that callback is what establishes the
+  session — do not move it behind the auth redirect.
+- Admin-only actions use the **service-role client**, which bypasses RLS, so they
+  MUST re-check the caller is admin against their own session first
+  (`settings/actions.ts → callingAdmin`). This is the one place the RLS-does-it
+  rule doesn't hold, by necessity.
+- **Depends on Supabase project config** (not in the repo): custom SMTP (built-in
+  email is rate-limited/testing-only), the origin in Auth → Redirect URLs, and
+  `NEXT_PUBLIC_SITE_URL` in prod so links point at the deployed origin. The
+  in-app password change works without any of these; the emails don't.
+
 ## Design — "the proofing desk"
 
 The tool descends from the swipe file: art directors clipping winning ads and
@@ -191,7 +212,7 @@ Mockup (approved direction): https://claude.ai/code/artifact/b259e888-3b9a-44e3-
 
 ## State of the build
 
-Last updated 2026-07-15.
+Last updated 2026-07-17.
 
 ### Resolved — do not re-litigate
 
@@ -212,6 +233,10 @@ Last updated 2026-07-15.
 | RLS | Verified **from both sides**: a stranger gets nothing (42501 on writes, `[]` on reads, `signup_disabled` on signup); a member sees all 3,527 ads. Both halves matter — a policy blocking everyone would pass the stranger test alone. |
 | Library | Real data, rail filters, sorts, score badge with its dates. |
 | Deconstruct (3a) | End-to-end on a real ad: Gemini located 8 elements, Claude marked 5, ~30s. `npm run verify:deconstruct [adId]`. |
+| Rebuild (3b) | Proven end-to-end on real NAC600 docs (see Known open). Editorial 3-column screen: source + deconstruction, our generated creative, editable headline/alternates/copy/CTA. Grounding gated three ways (action, `lib/rebuild.ts`, DB check). Pinned models: `claude-opus-4-8`, image `gemini-2.5-flash-image` — **NOT** the `gemini-3-pro-image`/`imagen-4.0-*` CLAUDE.md once named; those 503/404'd on 2026-07-16. `npm run verify:rebuild`. |
+| Brand | Doc upload → `brand-docs` bucket → text extracted (PDF via Gemini, DOCX via `mammoth`, txt/md direct) → `brand_docs` rows, versioned per kind. Unreadable files are rejected, not stored. |
+| Review (3c) | Table queue with Waiting/Mine/All filter; per-rebuild state machine draft→waiting→{approved,changes_asked}→waiting, writing `review_events`. Concurrency-guarded transitions. |
+| Settings / auth | Invite by email, resend, remove, self-service password, sign out. See § Auth. Email delivery depends on Supabase SMTP config (unverified end-to-end); the in-app pieces are wired and typecheck/route-compile clean. |
 
 **The Gemini/Claude split is load-bearing, not stylistic.** Gemini reports only
 *what is on the creative and where*; Claude gets that list plus the ad copy and
@@ -222,36 +247,35 @@ hallucinate marks onto empty pixels. Keep the split.
 
 ## Next
 
-Roughly in order.
+The three build steps (Rebuild 3b, Brand, Review 3c) and the Settings/auth
+screen have landed — see the build-state table. Remaining, roughly in order:
 
-1. **Rebuild (3b)** — the next real screen. Claude writes headline + copy,
-   Gemini generates the image. The `rebuilds` table already enforces grounding at
-   the DB level (`rebuild_must_be_grounded` checks `cardinality(grounding_doc_ids) > 0`),
-   so an ungrounded generation fails as a constraint violation rather than a
-   warning. Keep it that way — see hard constraint 3. Image generation is
-   available on this key (`gemini-3-pro-image`, `imagen-4.0-*`).
-2. **Brand screen** — doc upload → `brand-docs` bucket → text extraction →
-   `brand_docs` rows. Rebuild is blocked on this: with no docs there is nothing
-   to ground against, so 3b and this land together.
-3. **Review queue (3c)** — draft → waiting → changes asked → approved, writing
-   `review_events`.
-4. **Replace the `SYNC_SECRET` guard on `/api/sync` with the admin role check.**
+1. **Migrations `0003` and `0004` are applied to the live DB via the dashboard,
+   but confirm before relying on new columns.** `0004` adds
+   `rebuilds.{alternates,cta,notes,art_direction}`; the Rebuild detail screen and
+   `runRebuild` select/insert them, so an unapplied `0004` breaks generation with
+   "column does not exist." There is no linked project / `DATABASE_URL`, so
+   migrations are pasted into the SQL editor by hand.
+2. **Replace the `SYNC_SECRET` guard on `/api/sync` with the admin role check.**
    It was a placeholder from before auth existed; it fails closed (503) when the
-   secret is unset, so it is safe but wrong. Auth exists now.
-5. **Discovery search** in the Library — currently only the 3 tracked brands are
+   secret is unset, so it is safe but wrong. Auth exists now, and the
+   `callingAdmin` pattern in `settings/actions.ts` is the model to copy.
+3. **Discovery search** in the Library — currently only the 3 tracked brands are
    synced; `searchAds()` already supports open queries.
 
 ### Known open
 
-- One real brand's research docs are needed to test whether grounding produces
-  genuinely on-brand copy rather than plausible-sounding copy. **This is the last
-  unproven assumption in the whole product** — everything else is verified.
-- Review-queue staleness display needs rework: bare `v4 · v2 · v3` version stamps
-  are unreadable. Show a flag only when a doc is out of date, stay quiet when
-  current.
+- Grounding-produces-on-brand-copy is now **proven** on real TheStandardLab
+  NAC600 docs: the rebuild borrowed the source liver ad's confessional structure
+  but swapped in our glutathione/NAC/NAD+ mechanism and avoided the source's
+  cirrhosis/death claim. This was the last unproven product assumption.
+- Review staleness display is **done**: the queue table and the rebuild detail's
+  "Grounded in" flag a doc only when a newer version of that brand+kind exists,
+  and stay quiet when current. (Replaces the old unreadable `v4 · v2 · v3` stamps.)
 - Mark placement accuracy is Gemini's, and is unmeasured. Spot-checks landed on
   target; if a mark drifts, that is the vision prompt in `lib/vision.ts`, not the
   rendering.
 - The mockup hovers the back link to `--pencil`. That contradicts "pencil is
   ANNOTATION ONLY, never chrome", so the build darkens to `--ink` instead. Noted
-  in `globals.css` — flip it if the mockup wins.
+  in `globals.css` — flip it if the mockup wins. The same rule is why the new
+  sign-out button and doc-clamp "see more" are chrome-neutral, never pencil.

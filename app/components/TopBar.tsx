@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { signOut } from '@/app/auth/actions';
 
 // Client only because the active-tab state reads the pathname.
 const SCREENS = [
@@ -10,6 +11,7 @@ const SCREENS = [
   { href: '/rebuild', label: 'Rebuild' },
   { href: '/review', label: 'Review' },
   { href: '/brand', label: 'Brand' },
+  { href: '/settings', label: 'Settings' },
 ] as const;
 
 export function TopBar({ email }: { email?: string }) {
@@ -34,7 +36,12 @@ export function TopBar({ email }: { email?: string }) {
       </nav>
       <div className="whoami">
         <span className="avatar">{initials}</span>
-        {email ?? 'not signed in'}
+        <span>{email ?? 'not signed in'}</span>
+        <form action={signOut}>
+          <button type="submit" className="signout">
+            Sign out
+          </button>
+        </form>
       </div>
     </header>
   );

@@ -34,7 +34,12 @@ export function Proof({
   /** The score block — server-rendered, static. */
   panel: ReactNode;
   summary: string | null;
-  by: ReactNode;
+  /**
+   * Data, not JSX, and deliberately so — same as `summary`. A server-built
+   * element landing in this list slot loses React's key bookkeeping crossing
+   * the RSC boundary and trips a spurious "unique key prop" warning.
+   */
+  by: string | null;
 }) {
   const [lit, setLit] = useState<number | null>(null);
 
@@ -111,7 +116,7 @@ export function Proof({
           </div>
         )}
 
-        {by}
+        {by && <p className="by">{by}</p>}
       </aside>
     </div>
   );

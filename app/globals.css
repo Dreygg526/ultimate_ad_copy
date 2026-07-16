@@ -231,6 +231,26 @@ body {
   font-size: 11px;
   color: var(--ink-soft);
 }
+
+/* Chrome, not annotation — darkens to --ink, never touches --pencil. */
+.signout {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--ink-soft);
+  background: none;
+  border: 1px solid var(--rule);
+  border-radius: 2px;
+  padding: 4px 9px;
+  margin-left: 4px;
+  cursor: pointer;
+  transition: color 0.12s ease, border-color 0.12s ease, background 0.12s ease;
+}
+.signout:hover {
+  color: var(--ink);
+  border-color: var(--ink-soft);
+  background: var(--surface-2);
+}
 .avatar {
   width: 24px;
   height: 24px;
@@ -548,6 +568,139 @@ body {
   margin: 0 0 10px;
 }
 
+.form-ok {
+  font-size: 12px;
+  color: var(--go);
+  margin: 8px 0 0;
+}
+
+/* Brand + Rebuild forms. Same neutral chrome as .field input; the pencil red
+ * stays reserved for annotation. */
+.input {
+  font-family: var(--sans);
+  font-size: 13px;
+  color: var(--ink);
+  background: var(--proof);
+  border: 1px solid var(--rule);
+  border-radius: 2px;
+  padding: 8px 10px;
+}
+.input:focus {
+  outline: none;
+  border-color: var(--ink-soft);
+}
+select.input {
+  cursor: pointer;
+}
+input[type='file'].input {
+  padding: 6px 8px;
+  cursor: pointer;
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+}
+.stack .input {
+  width: 100%;
+}
+
+.upload {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.upload-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.upload-row .input {
+  flex: 0 1 auto;
+}
+.upload-row input[type='file'].input {
+  flex: 1 1 200px;
+  min-width: 0;
+}
+
+/* ---------- Review (3c): the queue and the per-rebuild controls ---------- */
+
+.review-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+}
+.review-controls textarea.input {
+  width: 100%;
+  resize: vertical;
+  font-family: var(--sans);
+}
+.review-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+/* One line of the review trail. Status moves are stamp-blue; the pencil stays
+ * out of chrome. */
+.review-event {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--rule-soft);
+}
+.review-event-move {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--stamp);
+}
+.review-event-note {
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--ink);
+}
+
+.review-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.review-card {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 12px 14px;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+}
+.review-card-main {
+  min-width: 0;
+}
+.review-card-head {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 13px;
+  color: var(--ink);
+  text-decoration: none;
+  line-height: 1.3;
+}
+.review-card-head:hover {
+  color: var(--stamp);
+}
+.review-card-actions {
+  flex: 0 0 auto;
+}
+
 /* ---------- THE SIGNATURE: grease-pencil marks on the creative ---------- */
 
 .mark {
@@ -747,6 +900,36 @@ body {
   margin-top: 2px;
 }
 
+.clamp {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.clamp.is-open {
+  display: block;
+  overflow: visible;
+}
+
+/* Chrome, not annotation — so it darkens to --ink and never touches --pencil. */
+.clamp-more {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  background: none;
+  border: 0;
+  border-bottom: 1px solid var(--rule);
+  padding: 0 0 1px;
+  margin-top: 7px;
+  cursor: pointer;
+  transition: color 0.13s ease, border-color 0.13s ease;
+}
+.clamp-more:hover {
+  color: var(--ink);
+  border-color: var(--ink);
+}
+
 .by {
   font-family: var(--mono);
   font-size: 9.5px;
@@ -794,4 +977,343 @@ body {
   font-size: 15px;
   letter-spacing: -0.01em;
 }
+.proofbar-brand {
+  font-family: var(--display);
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--ink-soft);
+  display: flex;
+  align-items: center;
+}
 .proofbar .spacer { margin-left: auto; }
+
+/* ---------- the editorial spread: source / creative / copy ---------- */
+
+.editorial {
+  display: grid;
+  grid-template-columns: 300px minmax(0, 1fr) minmax(360px, 460px);
+  align-items: start;
+}
+
+.ed-col {
+  padding: 22px;
+  min-width: 0;
+}
+.ed-source {
+  border-right: 1px solid var(--rule);
+  background: var(--surface);
+  min-height: calc(100vh - 104px);
+}
+/* the creative sits on the desk pad, like the deconstruct stage */
+.ed-art {
+  padding: 40px;
+  display: flex;
+  flex-direction: column;
+  min-height: calc(100vh - 104px);
+  background-image:
+    linear-gradient(var(--rule-soft) 1px, transparent 1px),
+    linear-gradient(90deg, var(--rule-soft) 1px, transparent 1px);
+  background-size: 28px 28px;
+  background-position: -1px -1px;
+}
+.ed-art .proof {
+  width: 100%;
+  max-width: 460px;
+  margin: 0 auto;
+}
+.ed-copy {
+  border-left: 1px solid var(--rule);
+  background: var(--surface);
+  min-height: calc(100vh - 104px);
+  padding: 22px 22px 60px;
+}
+
+/* a marked move in the source rail */
+.ed-move {
+  display: grid;
+  grid-template-columns: 20px 1fr;
+  gap: 8px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--rule-soft);
+}
+.ed-move-n {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--pencil);
+  border: 1.5px solid var(--pencil);
+  border-radius: 50%;
+  width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  margin-top: 1px;
+}
+
+.ed-doc {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--rule-soft);
+}
+.ed-doc .note-b { flex: 1; text-transform: capitalize; }
+.ed-ver {
+  flex: none;
+  font-size: 9px;
+  align-self: center;
+}
+
+.ed-noart {
+  border: 1px dashed var(--rule);
+  border-radius: 2px;
+  padding: 22px;
+  background: var(--surface);
+  text-align: center;
+}
+
+.ed-headline {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 19px;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+  margin: 8px 0 0;
+  text-wrap: balance;
+}
+.ed-cta-line {
+  font-size: 13px;
+  color: var(--ink);
+  margin: 10px 0 0;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.ed-read .note-b,
+.ed-read .clamp { font-size: 13.5px; line-height: 1.55; color: var(--ink); }
+
+/* ---------- the copy editor (draft / changes asked) ---------- */
+
+.editor { display: flex; flex-direction: column; }
+.editor-bar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  padding-bottom: 14px;
+  border-bottom: 2px solid var(--ink);
+  margin-bottom: 2px;
+}
+
+.field-block { margin-top: 20px; }
+.field-block > .eyebrow {
+  display: flex;
+  justify-content: space-between;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--rule);
+}
+.field-count {
+  font-family: var(--mono);
+  color: var(--ink-faint);
+  font-size: 10px;
+}
+
+.editable {
+  width: 100%;
+  font-family: var(--sans);
+  color: var(--ink);
+  background: var(--proof);
+  border: 1px solid var(--rule);
+  border-radius: 2px;
+  padding: 10px;
+  margin-top: 8px;
+  resize: vertical;
+}
+.editable:focus { outline: none; border-color: var(--ink-soft); }
+.editable-h {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 18px;
+  line-height: 1.25;
+  letter-spacing: -0.01em;
+}
+.editable-body { font-size: 13.5px; line-height: 1.55; }
+.editable-cta { font-size: 13px; }
+
+/* an alternate headline — click to promote it into the headline field */
+.alt-line {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: 0;
+  border-bottom: 1px solid var(--rule-soft);
+  padding: 9px 4px;
+  cursor: pointer;
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.35;
+}
+.alt-line:hover { background: var(--surface-2); }
+.alt-n {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--ink-faint);
+  flex: none;
+}
+
+@media (max-width: 1100px) {
+  .editorial { grid-template-columns: 1fr; }
+  .ed-source,
+  .ed-copy {
+    border-left: 0;
+    border-right: 0;
+    border-top: 1px solid var(--rule);
+    min-height: 0;
+  }
+  .ed-art { min-height: 0; padding: 26px; }
+}
+
+/* ---------- Review (3c): the queue table ---------- */
+
+.rev-table-wrap { overflow-x: auto; }
+.rev-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.rev-table th {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  text-align: left;
+  padding: 0 12px 8px;
+  border-bottom: 1px solid var(--rule);
+  white-space: nowrap;
+}
+.rev-table td {
+  padding: 12px;
+  border-bottom: 1px solid var(--rule-soft);
+  vertical-align: middle;
+}
+.rev-table tbody tr:hover td { background: var(--surface); }
+
+.rev-rebuild {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  text-decoration: none;
+  color: inherit;
+  min-width: 260px;
+}
+.rev-thumb {
+  flex: none;
+  width: 46px;
+  height: 46px;
+  border-radius: 2px;
+  overflow: hidden;
+  background: var(--surface-2);
+  display: grid;
+  place-items: center;
+}
+.rev-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.rev-thumb-none { font-family: var(--mono); color: var(--ink-faint); }
+.rev-rebuild-txt { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.rev-head {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 13px;
+  color: var(--ink);
+  line-height: 1.3;
+}
+.rev-rebuild:hover .rev-head { color: var(--stamp); }
+.rev-sub { font-family: var(--mono); font-size: 10.5px; color: var(--ink-faint); }
+
+.rev-who { color: var(--ink-soft); white-space: nowrap; }
+.rev-ground { display: flex; gap: 5px; flex-wrap: wrap; }
+.rev-ver {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--ink-soft);
+  background: var(--surface-2);
+  border: 1px solid var(--rule-soft);
+  border-radius: 2px;
+  padding: 1px 5px;
+  white-space: nowrap;
+}
+.rev-ver.is-stale {
+  color: var(--pencil);
+  background: var(--pencil-wash);
+  border-color: #edbdb6;
+}
+.rev-age { font-family: var(--mono); color: var(--ink-soft); white-space: nowrap; }
+.rev-actions { min-width: 180px; }
+
+/* ---------- Settings: team roster + invite ---------- */
+
+.invite-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  width: 100%;
+}
+.invite-row .input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.member-list {
+  display: flex;
+  flex-direction: column;
+  margin-top: 10px;
+}
+.member-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 2px;
+  border-bottom: 1px solid var(--rule-soft);
+}
+.member-id {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.member-email {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink);
+}
+.member-sub {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--ink-faint);
+}
+.member-role {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-soft);
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  white-space: nowrap;
+}
+.member-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: flex-end;
+}
+.member-btns {
+  display: flex;
+  gap: 6px;
+}
+.member-actions .btn {
+  padding: 5px 9px;
+  font-size: 10px;
+}

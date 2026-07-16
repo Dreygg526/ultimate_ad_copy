@@ -1,5 +1,6 @@
 import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
+import { requestReset } from '@/app/auth/actions';
 
 /**
  * Invite-only: there is no sign-up link, and self-signup is disabled on the
@@ -8,9 +9,9 @@ import { createClient } from '@/lib/supabase/server';
 export default async function SignInPage({
   searchParams,
 }: {
-  searchParams: Promise<{ next?: string; error?: string }>;
+  searchParams: Promise<{ next?: string; error?: string; sent?: string }>;
 }) {
-  const { next, error } = await searchParams;
+  const { next, error, sent } = await searchParams;
 
   async function signIn(formData: FormData) {
     'use server';
@@ -51,13 +52,34 @@ export default async function SignInPage({
 
         <input type="hidden" name="next" value={next ?? '/library'} />
 
-        {error && <p className="gate-error">That didn&rsquo;t work. Check the address and password.</p>}
+        {error === 'link' ? (
+          <p className="gate-error">That link has expired or was already used. Try again below.</p>
+        ) : error ? (
+          <p className="gate-error">That didn&rsquo;t work. Check the address and password.</p>
+        ) : null}
+        {sent && (
+          <p className="form-ok">
+            If that address has an account, a reset link is on its way.
+          </p>
+        )}
 
         <button className="btn" type="submit" style={{ width: '100%', marginTop: 6 }}>
           Sign in
         </button>
 
-        <p className="rail-note" style={{ marginTop: 18, borderLeft: 0, paddingLeft: 0 }}>
+        {/* Forgot-password reuses the email field above via formaction, so there's
+            one place to type the address. */}
+        <button
+          className="backlink"
+          type="submit"
+          formAction={requestReset}
+          formNoValidate
+          style={{ marginTop: 12 }}
+        >
+          Forgot password?
+        </button>
+
+        <p className="rail-note" style={{ marginTop: 14, borderLeft: 0, paddingLeft: 0 }}>
           No public sign-up. Ask the admin for an invite.
         </p>
       </form>

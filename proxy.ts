@@ -40,8 +40,12 @@ export async function proxy(request: NextRequest) {
 
   const { pathname } = request.nextUrl;
   const isSignIn = pathname.startsWith('/signin');
+  // /auth/* carries the email-link callback and the set-password page. The
+  // callback runs with no session yet (it is what establishes one), so it must
+  // not be bounced to /signin.
+  const isAuthFlow = pathname.startsWith('/auth');
 
-  if (!user && !isSignIn) {
+  if (!user && !isSignIn && !isAuthFlow) {
     const url = request.nextUrl.clone();
     url.pathname = '/signin';
     url.searchParams.set('next', pathname);

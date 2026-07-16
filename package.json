@@ -8,13 +8,15 @@
     "start": "next start",
     "lint": "eslint",
     "verify:atria": "node scripts/verify-atria.mjs",
-    "verify:deconstruct": "tsx --conditions=react-server scripts/verify-deconstruct.mts"
+    "verify:deconstruct": "tsx --conditions=react-server scripts/verify-deconstruct.mts",
+    "verify:rebuild": "tsx --conditions=react-server scripts/verify-rebuild.mts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.111.0",
     "@google/genai": "^2.11.0",
     "@supabase/ssr": "^0.12.3",
     "@supabase/supabase-js": "^2.110.5",
+    "mammoth": "^1.12.0",
     "next": "16.2.10",
     "react": "19.2.4",
     "react-dom": "19.2.4",
