@@ -42,9 +42,18 @@ export async function GET(request: NextRequest) {
   if (code) {
     const { error } = await supabase.auth.exchangeCodeForSession(code);
     if (!error) return done;
+    // A PKCE code with no code_verifier in this browser (the classic symptom of
+    // an email template still using {{ .ConfirmationURL }} instead of the
+    // token_hash link this route expects) lands here.
+    console.error('[auth/confirm] code exchange failed:', error.message);
   } else if (tokenHash && type) {
     const { error } = await supabase.auth.verifyOtp({ type, token_hash: tokenHash });
     if (!error) return done;
+    console.error(`[auth/confirm] verifyOtp(${type}) failed:`, error.message);
+  } else {
+    // Neither param present — the email link carried its tokens in the URL
+    // fragment (implicit flow), which the server can't read. Same template fix.
+    console.error('[auth/confirm] no code or token_hash on the callback URL');
   }
 
   // Expired or reused link — the tokens are single-use and short-lived.

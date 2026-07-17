@@ -150,9 +150,17 @@ Managed from the **Settings** screen (`/settings`):
   (`settings/actions.ts → callingAdmin`). This is the one place the RLS-does-it
   rule doesn't hold, by necessity.
 - **Depends on Supabase project config** (not in the repo): custom SMTP (built-in
-  email is rate-limited/testing-only), the origin in Auth → Redirect URLs, and
-  `NEXT_PUBLIC_SITE_URL` in prod so links point at the deployed origin. The
-  in-app password change works without any of these; the emails don't.
+  email is rate-limited/testing-only), the origin in Auth → Redirect URLs,
+  `NEXT_PUBLIC_SITE_URL` in prod so links point at the deployed origin, and — the
+  one that silently breaks invites — the **email templates must use the
+  `token_hash` link this app's `/auth/confirm` expects**, NOT the default
+  `{{ .ConfirmationURL }}`. Default templates hand back a PKCE `code` (or an
+  implicit-flow fragment) that a server-initiated invite has no `code_verifier`
+  for, so the exchange fails and the invitee lands on `/signin?error=link`. Set
+  each template to, e.g.:
+  `{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=invite&next=/auth/set-password`
+  (`type=recovery` for the reset template). The in-app password change works
+  without any of these; the emails don't.
 
 ## Design — "the proofing desk"
 
