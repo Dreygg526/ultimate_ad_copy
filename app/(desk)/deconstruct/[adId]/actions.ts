@@ -29,15 +29,34 @@ export async function runDeconstruction(
 
   const { data: ad } = await db
     .from('ads_scored')
-    .select('id, brand_name, title, body, caption, cta_text, status, run_days, images')
+    .select(
+      'id, brand_name, title, body, caption, cta_text, status, run_days, images, source, kind, storage_path, source_url',
+    )
     .eq('atria_ad_id', adId)
     .maybeSingle();
 
   if (!ad) return { error: 'That ad is not in the library.' };
+  if (ad.kind === 'video') {
+    return { error: 'Deconstruction supports images today, not video.' };
+  }
+
+  // Uploaded images live in the private bucket — hand Gemini a signed URL.
+  // Direct-link references carry the URL straight; Atria/Meta rows already do.
+  let images = ad.images as { url: string }[] | null;
+  if (ad.source === 'upload') {
+    if (ad.storage_path) {
+      const { data: signed } = await db.storage
+        .from('library')
+        .createSignedUrl(ad.storage_path, 3600);
+      images = signed?.signedUrl ? [{ url: signed.signedUrl }] : null;
+    } else if (ad.source_url) {
+      images = [{ url: ad.source_url }];
+    }
+  }
 
   let result;
   try {
-    result = await deconstructAd(ad as AdForDeconstruction);
+    result = await deconstructAd({ ...(ad as AdForDeconstruction), images });
   } catch (e) {
     // The buyer can't act on a stack trace, but they can act on "no image" or
     // "rate limited", so pass the real message through rather than a generic.

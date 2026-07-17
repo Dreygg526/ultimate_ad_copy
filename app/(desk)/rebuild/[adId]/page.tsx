@@ -148,7 +148,23 @@ export default async function RebuildAdPage({
     };
   });
 
-  const sourceArt = (ad.images as { url: string }[] | null)?.[0]?.url ?? null;
+  // The source creative. Uploaded files are in the private bucket → sign them;
+  // references and Atria/Meta rows carry a URL (videos[] for a video, images[]
+  // otherwise). A Meta row's source_url is the Facebook page, never the art.
+  const sourceIsVideo = ad.kind === 'video';
+  let sourceArt: string | null;
+  if (ad.source === 'upload') {
+    if (ad.storage_path) {
+      const { data } = await db.storage.from('library').createSignedUrl(ad.storage_path, 3600);
+      sourceArt = data?.signedUrl ?? null;
+    } else {
+      sourceArt = ad.source_url ?? null;
+    }
+  } else {
+    sourceArt = sourceIsVideo
+      ? ((ad.videos as { url: string }[] | null)?.[0]?.url ?? null)
+      : ((ad.images as { url: string }[] | null)?.[0]?.url ?? null);
+  }
   const day = (iso: string | null) => (iso ? iso.slice(0, 10) : '—');
   const editable = latest?.status === 'draft' || latest?.status === 'changes_asked';
 
@@ -158,10 +174,12 @@ export default async function RebuildAdPage({
         <Link href="/rebuild" className="backlink">
           ← Rebuild
         </Link>
-        <span className="proofbar-title">{ad.brand_name}</span>
-        <span className={`tag ${ad.status === 'active' ? 'is-live' : 'is-dead'}`}>
-          {ad.status === 'active' ? 'live' : 'ended'}
-        </span>
+        <span className="proofbar-title">{ad.brand_name ?? (ad.source === 'upload' ? 'Upload' : 'Meta ad')}</span>
+        {ad.status && (
+          <span className={`tag ${ad.status === 'active' ? 'is-live' : 'is-dead'}`}>
+            {ad.status === 'active' ? 'live' : 'ended'}
+          </span>
+        )}
         {latest && (
           <span className="proofbar-brand">
             → {brandName(latest.brand_id)}
@@ -184,8 +202,12 @@ export default async function RebuildAdPage({
             <figure className="proof">
               <div className="proof-art">
                 {sourceArt ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={sourceArt} alt="" />
+                  sourceIsVideo ? (
+                    <video src={sourceArt} controls preload="metadata" style={{ width: '100%' }} />
+                  ) : (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={sourceArt} alt="" />
+                  )
                 ) : (
                   <div className="no-art">no image on this ad</div>
                 )}
@@ -235,8 +257,12 @@ export default async function RebuildAdPage({
             <figure className="proof" style={{ marginTop: 10, width: '100%' }}>
               <div className="proof-art">
                 {sourceArt ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={sourceArt} alt="" />
+                  sourceIsVideo ? (
+                    <video src={sourceArt} controls preload="metadata" style={{ width: '100%' }} />
+                  ) : (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={sourceArt} alt="" />
+                  )
                 ) : (
                   <div className="no-art">no image on this ad</div>
                 )}
@@ -249,6 +275,29 @@ export default async function RebuildAdPage({
                 </span>
               </figcaption>
             </figure>
+
+            {/* The original copy we borrowed from — so a reviewer can see the
+                source headline/body/CTA next to what we wrote. */}
+            {(ad.title || ad.body) && (
+              <div className="notes-sec">
+                <p className="eyebrow">As it ran</p>
+                {ad.title && (
+                  <p className="note-h" style={{ marginTop: 8, fontSize: 13 }}>
+                    {ad.title}
+                  </p>
+                )}
+                {ad.body && (
+                  <div style={{ marginTop: 6 }}>
+                    <Clamp text={ad.body} lines={6} />
+                  </div>
+                )}
+                {ad.cta_text && (
+                  <p className="by" style={{ marginTop: 8 }}>
+                    CTA: {ad.cta_text}
+                  </p>
+                )}
+              </div>
+            )}
 
             {decon?.summary && (
               <div className="notes-sec">

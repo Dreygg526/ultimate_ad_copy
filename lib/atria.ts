@@ -247,6 +247,19 @@ export async function searchAds(params: SearchParams = {}): Promise<SearchResult
   };
 }
 
+/**
+ * Fetch one ad by its Atria id. Powers the Meta-URL paste path: a Facebook Ad
+ * Library `?id=<libid>` URL maps to Atria id `'m' + libid` (Meta prefix).
+ *
+ * Path is `/ad-library/{id}`, NOT the `/library-ads/{id}` the docs (llms.txt)
+ * advertise — that one returns code 40401 "no matching open API". Verified live
+ * 2026-07-17. The response `data` is the ad object directly (no `items`
+ * envelope), same field shape as a search hit.
+ */
+export async function getLibraryAd(adId: string): Promise<AtriaAd> {
+  return request<AtriaAd>(`/ad-library/${encodeURIComponent(adId)}`);
+}
+
 /** Every ad Atria holds for one brand. The tracked-brand sync path. */
 export async function listBrandAds(
   brandId: string,

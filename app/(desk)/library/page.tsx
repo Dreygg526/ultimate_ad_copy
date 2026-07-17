@@ -1,40 +1,30 @@
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/server';
-import { WinnerScoreNote, RunDates } from '@/app/components/WinnerScoreNote';
+import { AddToLibrary } from './AddToLibrary';
+import { DeleteButton } from './DeleteButton';
 
-// Steps 1–2 of the workflow: find ads, filter for winners.
-// Server Component — the Supabase client here acts as the signed-in user, so
-// RLS decides what comes back. A non-member gets an empty desk, not a 403.
+// Step 1, rebuilt: the Library is a curated swipe file the buyer stocks — files
+// uploaded straight to Storage, and ads pulled from a Meta Ad Library URL. Both
+// are `ads` rows (source 'upload' | 'meta'), so opening one runs the same
+// Deconstruct → Rebuild workflow. The old Atria tracked-brand feed and its
+// Winner Score are retired here; those rows stay in the DB but are filtered out.
 
-type Search = {
-  brand?: string;
-  format?: string;
-  status?: string;
-  winners?: string;
-  sort?: string;
-};
+type Search = { source?: string; kind?: string; q?: string };
 
-interface ScoredAd {
+interface Item {
   id: string;
   atria_ad_id: string;
+  source: 'upload' | 'meta';
+  kind: 'image' | 'video' | null;
+  storage_path: string | null;
+  source_url: string | null;
   brand_name: string | null;
   title: string | null;
-  status: 'active' | 'inactive';
-  display_format: string | null;
-  images: { url: string; width: number; height: number }[] | null;
-  start_date: string | null;
-  end_date: string | null;
-  run_days: number | null;
-  brand_percentile: number | null;
-  is_winner: boolean;
-  winner_override: boolean | null;
+  status: 'active' | 'inactive' | null;
+  images: { url: string }[] | null;
+  videos: { url: string }[] | null;
+  created_at: string;
 }
-
-const SORTS = {
-  score: { col: 'brand_percentile', label: 'Score' },
-  run: { col: 'run_days', label: 'Longest run' },
-  new: { col: 'start_date', label: 'Newest' },
-} as const;
 
 export default async function LibraryPage({
   searchParams,
@@ -42,48 +32,64 @@ export default async function LibraryPage({
   searchParams: Promise<Search>;
 }) {
   const sp = await searchParams;
-  const sortKey = (sp.sort && sp.sort in SORTS ? sp.sort : 'score') as keyof typeof SORTS;
   const db = await createClient();
-
-  const { data: brands } = await db
-    .from('brands')
-    .select('id, name, atria_brand_id')
-    .eq('is_tracked', true)
-    .order('name');
 
   let q = db
     .from('ads_scored')
     .select(
-      'id, atria_ad_id, brand_name, title, status, display_format, images, start_date, end_date, run_days, brand_percentile, is_winner, winner_override',
+      'id, atria_ad_id, source, kind, storage_path, source_url, brand_name, title, status, images, videos, created_at',
+    )
+    .in('source', ['upload', 'meta']);
+
+  if (sp.source === 'upload' || sp.source === 'meta') q = q.eq('source', sp.source);
+  if (sp.kind === 'image' || sp.kind === 'video') q = q.eq('kind', sp.kind);
+
+  // Free-text over title / ids. Strip PostgREST-significant chars so the search
+  // string can't break the .or() filter.
+  const needle = (sp.q ?? '').trim().replace(/[,()*\\]/g, ' ').trim();
+  if (needle) {
+    q = q.or(
+      `title.ilike.%${needle}%,atria_ad_id.ilike.%${needle}%,platform_native_id.ilike.%${needle}%`,
     );
+  }
 
-  if (sp.brand) q = q.eq('atria_brand_id', sp.brand);
-  if (sp.format) q = q.eq('display_format', sp.format);
-  if (sp.status) q = q.eq('status', sp.status);
-  if (sp.winners === '1') q = q.is('is_winner', true);
+  const { data, error } = await q.order('created_at', { ascending: false }).limit(60);
+  const rows = (data ?? []) as unknown as Item[];
 
-  const { data: ads, error } = await q
-    .order(SORTS[sortKey].col, { ascending: false, nullsFirst: false })
-    .limit(60);
-
-  // Counts for the rail, scoped the same way RLS scopes everything else.
-  const counts = await Promise.all(
-    (brands ?? []).map(async (b) => {
-      const { count } = await db
-        .from('ads_scored')
-        .select('id', { count: 'exact', head: true })
-        .eq('atria_brand_id', b.atria_brand_id!);
-      return { id: b.atria_brand_id!, count: count ?? 0 };
+  // Resolve each thumbnail. Uploads: a signed URL for a stored file, or the
+  // direct-link reference. Meta/Atria: the creative straight off Atria's CDN —
+  // videos[] for a video, images[] otherwise. (source_url on a Meta row is the
+  // Facebook page URL, NOT an image — never use it as art.)
+  const art = new Map<string, { url: string | null; isVideo: boolean }>();
+  await Promise.all(
+    rows.map(async (r) => {
+      const isVideo = r.kind === 'video';
+      let url: string | null;
+      if (r.source === 'upload') {
+        if (r.storage_path) {
+          const { data: signed } = await db.storage
+            .from('library')
+            .createSignedUrl(r.storage_path, 3600);
+          url = signed?.signedUrl ?? null;
+        } else {
+          url = r.source_url; // direct-link reference (image or video)
+        }
+      } else {
+        url = isVideo ? (r.videos?.[0]?.url ?? null) : (r.images?.[0]?.url ?? null);
+      }
+      art.set(r.id, { url, isVideo });
     }),
   );
 
-  const { count: totalAds } = await db
-    .from('ads_scored')
-    .select('id', { count: 'exact', head: true });
-  const { count: winnerCount } = await db
-    .from('ads_scored')
-    .select('id', { count: 'exact', head: true })
-    .is('is_winner', true);
+  // Rail counts, scoped by RLS like everything else.
+  const countSource = async (src: 'upload' | 'meta') => {
+    const { count } = await db
+      .from('ads_scored')
+      .select('id', { count: 'exact', head: true })
+      .eq('source', src);
+    return count ?? 0;
+  };
+  const [uploadN, metaN] = await Promise.all([countSource('upload'), countSource('meta')]);
 
   const qs = (patch: Partial<Search>) => {
     const next = new URLSearchParams();
@@ -92,138 +98,115 @@ export default async function LibraryPage({
     return s ? `/library?${s}` : '/library';
   };
 
-  const rows = (ads ?? []) as unknown as ScoredAd[];
-
   return (
     <div className="workbench">
       <aside className="rail">
+        <AddToLibrary />
+
         <div className="rail-group">
-          <p className="eyebrow">Tracked sources</p>
-          <Link href={qs({ brand: undefined })} className={`source${!sp.brand ? ' is-on' : ''}`}>
-            <span className="source-name">All brands</span>
-            <span className="source-count num">{totalAds ?? 0}</span>
+          <p className="eyebrow">Source</p>
+          <Link href={qs({ source: undefined })} className={`source${!sp.source ? ' is-on' : ''}`}>
+            <span className="source-name">All</span>
+            <span className="source-count num">{uploadN + metaN}</span>
           </Link>
-          {(brands ?? []).map((b) => (
-            <Link
-              key={b.id}
-              href={qs({ brand: b.atria_brand_id ?? undefined })}
-              className={`source is-tracked${sp.brand === b.atria_brand_id ? ' is-on' : ''}`}
-            >
-              <span className="source-name">{b.name}</span>
-              <span className="source-count num">
-                {counts.find((c) => c.id === b.atria_brand_id)?.count ?? 0}
-              </span>
-            </Link>
-          ))}
-        </div>
-
-        <div className="rail-group">
-          <p className="eyebrow">Format</p>
-          {['image', 'video', 'carousel', 'dco', 'dpa'].map((f) => (
-            <Link
-              key={f}
-              href={qs({ format: sp.format === f ? undefined : f })}
-              className="opt"
-              style={{ color: sp.format === f ? 'var(--pencil)' : undefined }}
-            >
-              {f}
-            </Link>
-          ))}
-        </div>
-
-        <div className="rail-group">
-          <p className="eyebrow">Status</p>
-          {(['active', 'inactive'] as const).map((s) => (
-            <Link
-              key={s}
-              href={qs({ status: sp.status === s ? undefined : s })}
-              className="opt"
-              style={{ color: sp.status === s ? 'var(--pencil)' : undefined }}
-            >
-              {s === 'active' ? 'Live' : 'Ended'}
-            </Link>
-          ))}
-        </div>
-
-        <div className="rail-group">
-          <p className="eyebrow">Winner Score</p>
           <Link
-            href={qs({ winners: sp.winners === '1' ? undefined : '1' })}
-            className="opt"
-            style={{ color: sp.winners === '1' ? 'var(--pencil)' : undefined }}
+            href={qs({ source: sp.source === 'upload' ? undefined : 'upload' })}
+            className={`source${sp.source === 'upload' ? ' is-on' : ''}`}
           >
-            Winners only <span className="num">{winnerCount ?? 0}</span>
+            <span className="source-name">Uploads</span>
+            <span className="source-count num">{uploadN}</span>
           </Link>
-          <div style={{ marginTop: 10 }}>
-            <WinnerScoreNote />
-          </div>
+          <Link
+            href={qs({ source: sp.source === 'meta' ? undefined : 'meta' })}
+            className={`source${sp.source === 'meta' ? ' is-on' : ''}`}
+          >
+            <span className="source-name">From Meta</span>
+            <span className="source-count num">{metaN}</span>
+          </Link>
         </div>
+
+        <div className="rail-group">
+          <p className="eyebrow">Kind</p>
+          {(['image', 'video'] as const).map((k) => (
+            <Link
+              key={k}
+              href={qs({ kind: sp.kind === k ? undefined : k })}
+              className="opt"
+              style={{ color: sp.kind === k ? 'var(--pencil)' : undefined }}
+            >
+              {k}
+            </Link>
+          ))}
+        </div>
+
+        <form className="rail-group field" action="/library" method="get">
+          <label className="eyebrow" htmlFor="q-search">
+            Search
+          </label>
+          {sp.source && <input type="hidden" name="source" value={sp.source} />}
+          {sp.kind && <input type="hidden" name="kind" value={sp.kind} />}
+          <input
+            id="q-search"
+            name="q"
+            type="search"
+            defaultValue={sp.q ?? ''}
+            placeholder="title or ID"
+            autoComplete="off"
+          />
+        </form>
       </aside>
 
       <main className="sheet">
         <div className="sheet-head">
-          <h1 className="sheet-title">{sp.winners === '1' ? 'Winners' : 'Library'}</h1>
+          <h1 className="sheet-title">Library</h1>
           <p className="sheet-sub">
-            {totalAds ?? 0} ads pulled · {winnerCount ?? 0} winners · showing {rows.length}
+            {uploadN + metaN} items · {uploadN} uploaded · {metaN} from Meta · showing {rows.length}
           </p>
-          <div className="sortbar">
-            <span className="eyebrow">Sort</span>
-            {Object.entries(SORTS).map(([k, v]) => (
-              <Link key={k} href={qs({ sort: k })} className={`chip${sortKey === k ? ' is-on' : ''}`}>
-                {v.label}
-              </Link>
-            ))}
-          </div>
         </div>
 
-        {error && (
-          <p style={{ color: 'var(--pencil)' }}>Could not load ads: {error.message}</p>
-        )}
+        {error && <p style={{ color: 'var(--pencil)' }}>Could not load library: {error.message}</p>}
 
         {!error && rows.length === 0 && (
           <p style={{ color: 'var(--ink-soft)', maxWidth: '52ch' }}>
-            Nothing matches. If the whole library is empty, ingest hasn&rsquo;t run yet.
+            Nothing here yet. Upload an image or video, or paste a Meta Ad Library URL, from the
+            panel on the left.
           </p>
         )}
 
         <div className="grid">
           {rows.map((ad) => {
-            const art = ad.images?.[0]?.url;
+            const a = art.get(ad.id);
             return (
-              <Link key={ad.id} href={`/deconstruct/${ad.atria_ad_id}`} className="clip">
-                <div className="clip-art">
-                  <span
-                    className={`score${ad.is_winner ? ' is-hot' : ''}`}
-                    title="Percentile of run length among this brand's live ads — not reach"
-                  >
-                    {ad.brand_percentile ?? '—'}
-                  </span>
-                  {ad.winner_override && <span className="tag is-pencil clip-flag">by hand</span>}
-                  {art ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={art} alt="" loading="lazy" />
-                  ) : (
-                    <div className="no-art">{ad.display_format ?? 'no image'}</div>
-                  )}
-                </div>
-                <div className="clip-meta">
-                  <div className="clip-brand">
-                    {ad.brand_name}
-                    <span className={`tag ${ad.status === 'active' ? 'is-live' : 'is-dead'}`}>
-                      {ad.status === 'active' ? 'live' : 'ended'}
-                    </span>
+              <div key={ad.id} className="clip-wrap">
+                <DeleteButton adId={ad.atria_ad_id} label={ad.title ?? ad.brand_name ?? 'this item'} />
+                <Link href={`/deconstruct/${ad.atria_ad_id}`} className="clip">
+                  <div className="clip-art">
+                    {a?.isVideo && <span className="clip-play">▶ video</span>}
+                    {a?.url ? (
+                      a.isVideo ? (
+                        <video src={a.url} muted preload="metadata" />
+                      ) : (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={a.url} alt="" loading="lazy" />
+                      )
+                    ) : (
+                      <div className="no-art">{ad.kind ?? 'no preview'}</div>
+                    )}
                   </div>
-                  {ad.title && <div className="clip-title">{ad.title}</div>}
-                  <div className="clip-run">
-                    <RunDates
-                      startDate={ad.start_date}
-                      endDate={ad.end_date}
-                      status={ad.status}
-                      runDays={ad.run_days}
-                    />
+                  <div className="clip-meta">
+                    <div className="clip-brand">
+                      {ad.source === 'meta' ? (ad.brand_name ?? 'Meta ad') : 'Upload'}
+                      {ad.source === 'meta' && ad.status && (
+                        <span className={`tag ${ad.status === 'active' ? 'is-live' : 'is-dead'}`}>
+                          {ad.status === 'active' ? 'live' : 'ended'}
+                        </span>
+                      )}
+                      <span className="clip-kind">{ad.kind}</span>
+                    </div>
+                    {ad.title && <div className="clip-title">{ad.title}</div>}
                   </div>
-                </div>
-              </Link>
+                </Link>
+              </div>
             );
           })}
         </div>

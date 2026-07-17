@@ -42,6 +42,8 @@ export default async function RebuildIndexPage() {
           'id, atria_ad_id, brand_name, title, status, images, start_date, end_date, run_days, brand_percentile, is_winner',
         )
         .in('id', readIds)
+        // Match the rebuilt Library: only user-curated items, never legacy Atria.
+        .in('source', ['upload', 'meta'])
         .order('brand_percentile', { ascending: false, nullsFirst: false })
         .limit(60)
     : { data: [] as Row[] };

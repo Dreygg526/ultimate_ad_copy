@@ -293,6 +293,126 @@ body {
   padding-left: 8px;
 }
 
+/* ---------- Add to library ---------- */
+
+.add-lib > .btn {
+  width: 100%;
+  margin-bottom: 8px;
+}
+.add-hint {
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--ink-faint);
+  margin: 8px 0 12px;
+}
+/* Upload progress. Neutral fill — the pencil red stays for annotation. */
+.uploadbar {
+  height: 4px;
+  background: var(--rule-soft);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.uploadbar > span {
+  display: block;
+  height: 100%;
+  background: var(--ink-soft);
+  transition: width 0.2s ease;
+}
+.add-url {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.add-url .input {
+  width: 100%;
+}
+/* Kind tag on a clip; sits with the status tag. */
+.clip-kind {
+  font-family: var(--mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink-faint);
+}
+.clip-art video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.clip-play {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  font-family: var(--mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  background: rgba(20, 23, 26, 0.72);
+  color: #fff;
+  padding: 2px 6px;
+  border-radius: 2px;
+}
+
+/* Delete affordance. Sits over the card but outside its <Link>. Hidden until
+ * hover so the grid stays quiet; the pencil red is for annotation, so this
+ * stays neutral until it's armed to confirm. */
+.clip-wrap {
+  position: relative;
+}
+.del-btn,
+.del-confirm {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 2;
+}
+.del-btn {
+  width: 22px;
+  height: 22px;
+  line-height: 1;
+  font-size: 12px;
+  border: 1px solid var(--rule);
+  background: var(--surface);
+  color: var(--ink-soft);
+  border-radius: 2px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+.clip-wrap:hover .del-btn,
+.del-btn:focus-visible {
+  opacity: 1;
+}
+.del-btn:hover {
+  border-color: var(--ink-soft);
+  color: var(--ink);
+}
+.del-confirm {
+  display: flex;
+  gap: 4px;
+}
+.del-confirm button {
+  font-family: var(--mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 3px 7px;
+  border-radius: 2px;
+  cursor: pointer;
+  border: 1px solid var(--rule);
+}
+/* Weighty via ink, not pencil — pencil red is annotation-only (CLAUDE.md). */
+.del-yes {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: var(--surface);
+}
+.del-no {
+  background: var(--surface);
+  color: var(--ink-soft);
+}
+
 /* ---------- rail controls ---------- */
 
 .source {
@@ -768,6 +888,10 @@ input[type='file'].input {
 .proof {
   position: relative;
   width: min(460px, 100%);
+  /* <figure> carries a UA default margin: 0 40px. Harmless where the proof is
+     centered (the stage, .ed-art), but in the left .ed-source rail it shoves the
+     creative ~40px right, out of line with the notes below it. Zero it. */
+  margin: 0;
   background: var(--surface);
   box-shadow: var(--shadow-pin);
   border-radius: 2px;
@@ -804,6 +928,17 @@ input[type='file'].input {
   gap: 10px;
 }
 .proof-cap .spacer { margin-left: auto; }
+/* Click-to-copy Library ID. A bare button that reads as caption text; chrome-
+ * neutral (darkens to --ink on hover) — pencil red stays for annotation. */
+.copyid {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+.copyid:hover { color: var(--ink); }
 
 /* the annotation panel */
 .notes {

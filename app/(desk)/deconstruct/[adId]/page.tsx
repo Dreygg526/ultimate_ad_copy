@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/server';
 import { Proof, type Mark } from '@/app/components/Proof';
 import { Clamp } from '@/app/components/Clamp';
 import { DeconstructButton } from './DeconstructButton';
+import { CopyId } from './CopyId';
 
 // Step 3a: Gemini reads the image, Claude reads the structure.
 // The score is never shown bare — the dates behind it and the note that it is
@@ -28,7 +29,26 @@ export default async function DeconstructAdPage({
     .limit(1)
     .maybeSingle();
 
-  const art = (ad.images as { url: string }[] | null)?.[0]?.url ?? null;
+  const isVideo = ad.kind === 'video';
+  // Resolve the creative. Uploaded files are signed from the private bucket;
+  // references and Atria/Meta rows carry a URL (videos[] for a video, images[]
+  // otherwise). A Meta row's source_url is the Facebook page, never the art.
+  let art: string | null;
+  if (ad.source === 'upload') {
+    if (ad.storage_path) {
+      const { data: signed } = await db.storage
+        .from('library')
+        .createSignedUrl(ad.storage_path, 3600);
+      art = signed?.signedUrl ?? null;
+    } else {
+      art = ad.source_url ?? null;
+    }
+  } else {
+    art = isVideo
+      ? ((ad.videos as { url: string }[] | null)?.[0]?.url ?? null)
+      : ((ad.images as { url: string }[] | null)?.[0]?.url ?? null);
+  }
+
   const marks = ((decon?.marks ?? []) as Mark[]).filter(
     (m) => Number.isFinite(m?.x) && Number.isFinite(m?.y),
   );
@@ -40,49 +60,72 @@ export default async function DeconstructAdPage({
         <Link href="/library" className="backlink">
           ← Library
         </Link>
-        <span className="proofbar-title">{ad.brand_name}</span>
-        <span className={`tag ${ad.status === 'active' ? 'is-live' : 'is-dead'}`}>
-          {ad.status === 'active' ? 'live' : 'ended'}
-        </span>
+        <span className="proofbar-title">{ad.brand_name ?? (ad.source === 'upload' ? 'Upload' : 'Meta ad')}</span>
+        {ad.status && (
+          <span className={`tag ${ad.status === 'active' ? 'is-live' : 'is-dead'}`}>
+            {ad.status === 'active' ? 'live' : 'ended'}
+          </span>
+        )}
         <span className="spacer" />
-        <DeconstructButton adId={adId} again={!!decon} />
+        {isVideo ? (
+          <span className="rail-note" style={{ border: 0, padding: 0 }}>
+            Deconstruction supports images, not video, for now.
+          </span>
+        ) : (
+          <DeconstructButton adId={adId} again={!!decon} />
+        )}
       </div>
 
       <Proof
         art={art}
+        isVideo={isVideo}
         marks={marks}
         caption={
           <>
-            <span>{ad.atria_ad_id}</span>
+            {ad.platform_native_id ? (
+              // Copy, not link: Meta can't reliably deep-link a specific
+              // low-impression clone, so we hand over the ID to paste into
+              // Meta's own search rather than open a dead page.
+              <CopyId id={ad.platform_native_id} />
+            ) : (
+              <span>{ad.atria_ad_id}</span>
+            )}
             <span>{ad.display_format ?? '—'}</span>
             <span className="spacer" />
-            <span>
-              {day(ad.start_date)} → {ad.status === 'active' ? 'still running' : day(ad.end_date)}
-            </span>
+            {ad.start_date && (
+              <span>
+                {day(ad.start_date)} → {ad.status === 'active' ? 'still running' : day(ad.end_date)}
+              </span>
+            )}
           </>
         }
         panel={
           <>
-            <div className="scoreblock">
-              <div className="scoreblock-row">
-                <span className="bignum">{ad.brand_percentile ?? '—'}</span>
-                <div className="scorefacts">
-                  <div className="lead">Winner Score</div>
-                  <div>
-                    {ad.run_days ?? '—'} days running
-                    {ad.winner_override ? ' · flagged by hand' : ''}
-                  </div>
-                  <div>
-                    {day(ad.start_date)} → {ad.status === 'active' ? 'still running' : day(ad.end_date)}
+            {/* Winner Score is a run-length proxy — only meaningful for ads that
+                carry Atria run dates (meta/atria), never for a manual upload. */}
+            {ad.source !== 'upload' && (
+              <div className="scoreblock">
+                <div className="scoreblock-row">
+                  <span className="bignum">{ad.brand_percentile ?? '—'}</span>
+                  <div className="scorefacts">
+                    <div className="lead">Winner Score</div>
+                    <div>
+                      {ad.run_days ?? '—'} days running
+                      {ad.winner_override ? ' · flagged by hand' : ''}
+                    </div>
+                    <div>
+                      {day(ad.start_date)} →{' '}
+                      {ad.status === 'active' ? 'still running' : day(ad.end_date)}
+                    </div>
                   </div>
                 </div>
+                <p className="proxy">
+                  Percentile of run length among this brand&rsquo;s live ads. Atria returns no
+                  impressions, so this is a longevity proxy — <b>not reach</b>. The dates it was
+                  derived from are above.
+                </p>
               </div>
-              <p className="proxy">
-                Percentile of run length among this brand&rsquo;s live ads. Atria returns no
-                impressions, so this is a longevity proxy — <b>not reach</b>. The dates it was
-                derived from are above.
-              </p>
-            </div>
+            )}
 
             {ad.title && (
               <div className="notes-sec">

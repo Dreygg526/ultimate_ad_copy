@@ -55,7 +55,9 @@ export default async function ReviewPage({
   searchParams: Promise<{ show?: string }>;
 }) {
   const { show } = await searchParams;
-  const filter: Filter = show === 'mine' || show === 'all' ? show : 'waiting';
+  // Default to 'all' — the reviewer wants the whole queue on landing, not just
+  // what's waiting. Explicit ?show=waiting|mine still override.
+  const filter: Filter = show === 'mine' || show === 'waiting' ? show : 'all';
 
   const db = await createClient();
   const {
@@ -153,7 +155,7 @@ export default async function ReviewPage({
           {FILTERS.map((f) => (
             <Link
               key={f.key}
-              href={f.key === 'waiting' ? '/review' : `/review?show=${f.key}`}
+              href={f.key === 'all' ? '/review' : `/review?show=${f.key}`}
               className={`chip ${filter === f.key ? 'is-on' : ''}`}
             >
               {f.label}

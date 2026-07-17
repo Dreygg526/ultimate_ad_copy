@@ -15,7 +15,7 @@ From the source doc. Every screen maps to a step — keep it that way.
 | Step | Screen | What happens |
 |---|---|---|
 | Prep: brand context | Brand | Research docs → Supabase bucket → text extracted → injected into every rebuild |
-| 1. Find ads | Library | Tracked brands synced from Atria + discovery search |
+| 1. Find ads | Library | User-curated: upload image/video (≤1GB), paste a Meta Ad Library URL, or a direct file link. (The old Atria tracked-brand auto-sync is retired — see the pivot note in State of the build.) |
 | 2. Filter for winners | Library rail | Format, status, date window, Winner Score |
 | 3a. Deconstruct | Deconstruct | Gemini reads the image, Claude reads the structure |
 | 3b. Replicate | Rebuild | Claude writes headline + copy, Gemini generates image |
@@ -228,15 +228,41 @@ Last updated 2026-07-17.
 
 | Piece | State |
 |---|---|
-| Ingest | All **3,527 real ads** across the 3 tracked brands, in ~25s. `fetched === upserted === reportedTotal` for each. |
-| Winner Score | `ads_scored` view. Three independent implementations (JS, PGlite, live Postgres) agree exactly. |
-| RLS | Verified **from both sides**: a stranger gets nothing (42501 on writes, `[]` on reads, `signup_disabled` on signup); a member sees all 3,527 ads. Both halves matter — a policy blocking everyone would pass the stranger test alone. |
-| Library | Real data, rail filters, sorts, score badge with its dates. |
+| Ingest | **Retired as the Library backbone** (see pivot note below). `lib/ingest.ts` and `/api/sync` are removed; the ~3,600 legacy Atria rows stay in `ads` (source `atria`) but are filtered out of the Library. Atria is now on-demand only, via `getLibraryAd` (`lib/atria.ts`) for the Meta-URL path. |
+| Winner Score | `ads_scored` view (unchanged rule). Now applies only to **Meta-sourced** items, which carry Atria run dates; uploads have no dates → no score. Still shows the dates and "not reach" per hard constraint 1. |
+| RLS | Verified **from both sides**: a stranger gets nothing (42501 on writes, `[]` on reads, `signup_disabled` on signup); a member sees everything. Both halves matter — a policy blocking everyone would pass the stranger test alone. The `library` storage bucket uses the same `is_member()` policy as `brand-docs`/`rebuilds`. |
+| Library | **Rebuilt around uploads** (`0005_library_uploads.sql`). Upload image/video ≤1GB (browser→Storage resumable via `tus-js-client`), paste a Meta Ad Library URL (resolved through Atria) or a direct file link (stored as a reference). Source/kind filters, title/ID search, per-card delete. Items flow into Deconstruct→Rebuild unchanged (they're `ads` rows). `npm run verify:library`. |
 | Deconstruct (3a) | End-to-end on a real ad: Gemini located 8 elements, Claude marked 5, ~30s. `npm run verify:deconstruct [adId]`. |
 | Rebuild (3b) | Proven end-to-end on real NAC600 docs (see Known open). Editorial 3-column screen: source + deconstruction, our generated creative, editable headline/alternates/copy/CTA. Grounding gated three ways (action, `lib/rebuild.ts`, DB check). Pinned models: `claude-opus-4-8`, image `gemini-2.5-flash-image` — **NOT** the `gemini-3-pro-image`/`imagen-4.0-*` CLAUDE.md once named; those 503/404'd on 2026-07-16. `npm run verify:rebuild`. |
 | Brand | Doc upload → `brand-docs` bucket → text extracted (PDF via Gemini, DOCX via `mammoth`, txt/md direct) → `brand_docs` rows, versioned per kind. Unreadable files are rejected, not stored. |
-| Review (3c) | Table queue with Waiting/Mine/All filter; per-rebuild state machine draft→waiting→{approved,changes_asked}→waiting, writing `review_events`. Concurrency-guarded transitions. |
+| Review (3c) | Table queue with Waiting/Mine/All filter (**defaults to All** on landing; `?show=waiting\|mine` override); per-rebuild state machine draft→waiting→{approved,changes_asked}→waiting, writing `review_events`. Concurrency-guarded transitions. The rebuild detail (`/rebuild/[adId]`, where the queue links) shows the source ad's "As it ran" headline/body/CTA so a reviewer sees what was borrowed. |
 | Settings / auth | Invite by email, resend, remove, self-service password, sign out. See § Auth. Email delivery depends on Supabase SMTP config (unverified end-to-end); the in-app pieces are wired and typecheck/route-compile clean. |
+
+### Pivot — the Library is now upload-driven (2026-07-17)
+
+The Library stopped being the Atria tracked-brand feed and became a **curated
+swipe file the buyer stocks** (user decision, after hitting the feed's limits:
+Atria staleness, Meta's unverifiable per-clone impressions, no curation). The
+`ads` table is reused as the universal item store — an upload, a Meta paste, and
+a legacy Atria row are all `ads` rows — so Deconstruct→Rebuild, which key off
+`ads_scored.atria_ad_id` / `ads.id`, kept working. New rows carry a synthetic
+`atria_ad_id` (`up_<uuid>` for uploads, `m<library_id>` for Meta pastes).
+
+Non-obvious things worth keeping:
+- **1GB uploads go browser→Storage resumably** (`tus-js-client`, `lib/supabase/client.ts`,
+  `AddToLibrary.tsx`) — a server action's ~4.5MB body limit can't carry them. Depends
+  on the Supabase **Storage file-size limit being raised to ≥1GB** in the dashboard
+  (an external config dep, like SMTP).
+- **The single-ad Atria endpoint is `/open/v1/ad-library/{id}`**, NOT the docs'
+  `/open/v1/library-ads/{id}` (that returns code 40401). Verified live.
+- **A view's `select a.*` freezes its column list at creation** — `0005` had to
+  drop+recreate `ads_scored` (verbatim the `0003` body) for the new columns to
+  surface, not merely `alter table ads`.
+- **A Meta row's `source_url` is the Facebook page URL, never the creative.** Art
+  comes from `videos[]`/`images[]` (Atria CDN); `source_url` is art only for a
+  direct-link upload reference. Getting this order wrong shows broken previews.
+- Video is stored/playable but **deconstruction is image-only** (Gemini vision
+  needs a still); the button is hidden for video with a note.
 
 **The Gemini/Claude split is load-bearing, not stylistic.** Gemini reports only
 *what is on the creative and where*; Claude gets that list plus the ad copy and
@@ -250,18 +276,21 @@ hallucinate marks onto empty pixels. Keep the split.
 The three build steps (Rebuild 3b, Brand, Review 3c) and the Settings/auth
 screen have landed — see the build-state table. Remaining, roughly in order:
 
-1. **Migrations `0003` and `0004` are applied to the live DB via the dashboard,
-   but confirm before relying on new columns.** `0004` adds
-   `rebuilds.{alternates,cta,notes,art_direction}`; the Rebuild detail screen and
-   `runRebuild` select/insert them, so an unapplied `0004` breaks generation with
-   "column does not exist." There is no linked project / `DATABASE_URL`, so
-   migrations are pasted into the SQL editor by hand.
-2. **Replace the `SYNC_SECRET` guard on `/api/sync` with the admin role check.**
-   It was a placeholder from before auth existed; it fails closed (503) when the
-   secret is unset, so it is safe but wrong. Auth exists now, and the
-   `callingAdmin` pattern in `settings/actions.ts` is the model to copy.
-3. **Discovery search** in the Library — currently only the 3 tracked brands are
-   synced; `searchAds()` already supports open queries.
+1. **Migrations `0003`–`0005` are applied to the live DB via the dashboard, but
+   confirm before relying on new columns.** `0005` adds `ads.{source,kind,
+   storage_path,source_url,file_bytes,mime,created_by}`, recreates `ads_scored`,
+   and creates the `library` bucket + policy. There is no linked project /
+   `DATABASE_URL`, so migrations are pasted into the SQL editor by hand.
+2. **Video deconstruction** — currently image-only. Options: a poster-frame
+   extract, or Atria's transcript endpoint
+   (`/open/v1/ad-accounts/{acct}/ads/{id}/transcript`) to feed Claude the spoken hook.
+3. **Bulk Meta page-URL ingest** — `addByUrl` handles single-ad `?id=` URLs;
+   `?view_all_page_id=` (a whole advertiser) is not wired.
+4. **Optional Atria discovery search** — `searchAds()` is still in `lib/atria.ts`
+   and unused. If automated discovery is ever wanted back, wire it as an in-app
+   "pull into Library" action rather than a tracked-brand auto-sync.
+5. **Legacy Atria rows** (~3,600, source `atria`) are hidden, not purged. Purge or
+   add a toggle if they're in the way — the user's call.
 
 ### Known open
 

@@ -27,6 +27,7 @@ export function Proof({
   panel,
   summary,
   by,
+  isVideo = false,
 }: {
   art: string | null;
   marks: Mark[];
@@ -34,6 +35,9 @@ export function Proof({
   /** The score block — server-rendered, static. */
   panel: ReactNode;
   summary: string | null;
+  /** Uploaded video: play it in the stage instead of showing a still. Marks
+   * don't apply (deconstruction is image-only), so none are passed. */
+  isVideo?: boolean;
   /**
    * Data, not JSX, and deliberately so — same as `summary`. A server-built
    * element landing in this list slot loses React's key bookkeeping crossing
@@ -49,10 +53,14 @@ export function Proof({
         <figure className="proof">
           <div className="proof-art">
             {art ? (
-              // Real creative from Atria's CDN. next/image would proxy and
-              // re-encode it; a clipped ad should be shown exactly as it ran.
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={art} alt="" />
+              isVideo ? (
+                <video src={art} controls preload="metadata" style={{ width: '100%' }} />
+              ) : (
+                // Real creative from Atria's CDN. next/image would proxy and
+                // re-encode it; a clipped ad should be shown exactly as it ran.
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={art} alt="" />
+              )
             ) : (
               <div className="no-art">no image on this ad</div>
             )}
