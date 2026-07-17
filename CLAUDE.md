@@ -244,7 +244,30 @@ Last updated 2026-07-17.
 | Rebuild (3b) | Proven end-to-end on real NAC600 docs (see Known open). Editorial 3-column screen: source + deconstruction, our generated creative, editable headline/alternates/copy/CTA. Grounding gated three ways (action, `lib/rebuild.ts`, DB check). Pinned models: `claude-opus-4-8`, image `gemini-2.5-flash-image` — **NOT** the `gemini-3-pro-image`/`imagen-4.0-*` CLAUDE.md once named; those 503/404'd on 2026-07-16. `npm run verify:rebuild`. |
 | Brand | Doc upload → `brand-docs` bucket → text extracted (PDF via Gemini, DOCX via `mammoth`, txt/md direct) → `brand_docs` rows, versioned per kind. Unreadable files are rejected, not stored. |
 | Review (3c) | Table queue with Waiting/Mine/All filter (**defaults to All** on landing; `?show=waiting\|mine` override); per-rebuild state machine draft→waiting→{approved,changes_asked}→waiting, writing `review_events`. Concurrency-guarded transitions. The rebuild detail (`/rebuild/[adId]`, where the queue links) shows the source ad's "As it ran" headline/body/CTA so a reviewer sees what was borrowed. |
-| Settings / auth | Invite by email, resend, remove, self-service password, sign out. See § Auth. Email delivery depends on Supabase SMTP config (unverified end-to-end); the in-app pieces are wired and typecheck/route-compile clean. |
+| Settings / auth | Invite by email, resend, remove, self-service password, sign out. See § Auth. In-app pieces wired and clean. **Emailed invite/reset links require the `token_hash` email templates** (§ Auth dependency) — with the default `{{ .ConfirmationURL }}` templates the invitee lands on `/signin?error=link` (PKCE code / implicit fragment the server can't exchange). `/auth/confirm` now logs the exact failure (`[auth/confirm] …`) to the function logs. |
+
+### Deployment (Vercel) — live 2026-07-17
+
+Deployed to Vercel: project **`teardown`** under scope `dreygg526s-projects`,
+production at **https://teardown-kohl.vercel.app**.
+
+- **Shipped via CLI** (`vercel --prod`) from the local `feature/rebuild-review-settings`
+  branch, so production reflects that branch's code even though it isn't merged.
+  The GitHub repo is connected, but Vercel's git auto-deploy targets `main` (which
+  is behind) — **merge the feature branch to `main`** before relying on push-to-deploy.
+- **Env vars** (Vercel → Settings → Environment Variables, all in Production): the
+  six secrets from `.env.local` plus `NEXT_PUBLIC_SITE_URL=https://teardown-kohl.vercel.app`.
+  `SYNC_SECRET` is gone (no `/api/sync`). `NEXT_PUBLIC_*` are build-time inlined, so
+  changing the site URL needs a redeploy.
+- **Same Supabase project** as local, so migrations `0001`–`0005`, the `library`
+  bucket, and the ≥1GB Storage limit are already live in prod — nothing DB-side to
+  redo per environment.
+- **Vercel Deployment Protection must be OFF** (Settings → Deployment Protection →
+  Vercel Authentication → Disabled). Left on, the whole app sits behind Vercel SSO
+  and the intended users can't reach the app's own invite-only sign-in. The app's
+  RLS is the real gate, so a public prod URL is safe.
+- **1GB uploads work in prod** because they go browser→Storage directly, never
+  through a Vercel function body.
 
 ### Pivot — the Library is now upload-driven (2026-07-17)
 
@@ -282,22 +305,29 @@ hallucinate marks onto empty pixels. Keep the split.
 ## Next
 
 The three build steps (Rebuild 3b, Brand, Review 3c) and the Settings/auth
-screen have landed — see the build-state table. Remaining, roughly in order:
+screen have landed, and the app is deployed to Vercel (§ Deployment) — see the
+build-state table. Remaining, roughly in order:
 
-1. **Migrations `0003`–`0005` are applied to the live DB via the dashboard, but
+0. **Prod auth config (blocks real invites).** In Supabase: set the `token_hash`
+   email templates (§ Auth dependency), Site URL and Redirect URLs to
+   `https://teardown-kohl.vercel.app`. In Vercel: turn Deployment Protection OFF.
+   Until these are done, invited users hit `/signin?error=link` or Vercel's SSO wall.
+1. **Merge `feature/rebuild-review-settings` → `main`** so Vercel git auto-deploy
+   matches what the CLI shipped (§ Deployment).
+2. **Migrations `0003`–`0005` are applied to the live DB via the dashboard, but
    confirm before relying on new columns.** `0005` adds `ads.{source,kind,
    storage_path,source_url,file_bytes,mime,created_by}`, recreates `ads_scored`,
    and creates the `library` bucket + policy. There is no linked project /
    `DATABASE_URL`, so migrations are pasted into the SQL editor by hand.
-2. **Video deconstruction** — currently image-only. Options: a poster-frame
+3. **Video deconstruction** — currently image-only. Options: a poster-frame
    extract, or Atria's transcript endpoint
    (`/open/v1/ad-accounts/{acct}/ads/{id}/transcript`) to feed Claude the spoken hook.
-3. **Bulk Meta page-URL ingest** — `addByUrl` handles single-ad `?id=` URLs;
+4. **Bulk Meta page-URL ingest** — `addByUrl` handles single-ad `?id=` URLs;
    `?view_all_page_id=` (a whole advertiser) is not wired.
-4. **Optional Atria discovery search** — `searchAds()` is still in `lib/atria.ts`
+5. **Optional Atria discovery search** — `searchAds()` is still in `lib/atria.ts`
    and unused. If automated discovery is ever wanted back, wire it as an in-app
    "pull into Library" action rather than a tracked-brand auto-sync.
-5. **Legacy Atria rows** (~3,600, source `atria`) are hidden, not purged. Purge or
+6. **Legacy Atria rows** (~3,600, source `atria`) are hidden, not purged. Purge or
    add a toggle if they're in the way — the user's call.
 
 ### Known open
