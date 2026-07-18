@@ -220,7 +220,7 @@ Mockup (approved direction): https://claude.ai/code/artifact/b259e888-3b9a-44e3-
 
 ## State of the build
 
-Last updated 2026-07-17.
+Last updated 2026-07-18.
 
 ### Resolved — do not re-litigate
 
@@ -252,17 +252,19 @@ Last updated 2026-07-17.
 Deployed to Vercel: project **`teardown`** under scope `dreygg526s-projects`,
 production at **https://teardown-kohl.vercel.app**.
 
-- **Shipped via CLI** (`vercel --prod`) from the local `feature/rebuild-review-settings`
-  branch, so production reflects that branch's code even though it isn't merged.
-  The GitHub repo is connected, but Vercel's git auto-deploy targets `main` (which
-  is behind) — **merge the feature branch to `main`** before relying on push-to-deploy.
+- **Now on git auto-deploy from `main`.** As of 2026-07-18, `feature/rebuild-review-settings`
+  was fast-forwarded into `main` and pushed, so `main` == the feature branch and
+  Vercel's git integration builds production on every push to `main`. (Earlier the
+  branch was only shipped via `vercel --prod` CLI and `main` lagged — no longer.)
+  Keep working on the feature branch and fast-forward `main` when you want a prod
+  deploy, or push straight to `main`.
 - **Env vars** (Vercel → Settings → Environment Variables, all in Production): the
   six secrets from `.env.local` plus `NEXT_PUBLIC_SITE_URL=https://teardown-kohl.vercel.app`.
   `SYNC_SECRET` is gone (no `/api/sync`). `NEXT_PUBLIC_*` are build-time inlined, so
   changing the site URL needs a redeploy.
-- **Same Supabase project** as local, so migrations `0001`–`0005`, the `library`
+- **Same Supabase project** as local, so migrations `0001`–`0006`, the `library`
   bucket, and the ≥1GB Storage limit are already live in prod — nothing DB-side to
-  redo per environment.
+  redo per environment. (`0006` = `ads.winner_score`, applied 2026-07-18.)
 - **Vercel Deployment Protection must be OFF** (Settings → Deployment Protection →
   Vercel Authentication → Disabled). Left on, the whole app sits behind Vercel SSO
   and the intended users can't reach the app's own invite-only sign-in. The app's
@@ -313,16 +315,16 @@ build-state table. Remaining, roughly in order:
    email templates (§ Auth dependency), Site URL and Redirect URLs to
    `https://teardown-kohl.vercel.app`. In Vercel: turn Deployment Protection OFF.
    Until these are done, invited users hit `/signin?error=link` or Vercel's SSO wall.
-1. **Merge `feature/rebuild-review-settings` → `main`** so Vercel git auto-deploy
-   matches what the CLI shipped (§ Deployment).
-2. **Migrations `0003`–`0006` are applied to the live DB via the dashboard, but
-   confirm before relying on new columns.** `0005` adds `ads.{source,kind,
-   storage_path,source_url,file_bytes,mime,created_by}`, recreates `ads_scored`,
-   and creates the `library` bucket + policy. `0006` adds `ads.winner_score` and
-   recreates `ads_scored` again. **`0006` is NOT yet applied to prod** — the
-   page-URL winner pull inserts `winner_score` and the Library selects it, so
-   both break until it's pasted into the SQL editor. There is no linked project /
-   `DATABASE_URL`, so migrations are pasted into the SQL editor by hand.
+1. **~~Merge `feature/rebuild-review-settings` → `main`~~ — DONE 2026-07-18.**
+   `main` was fast-forwarded to the feature branch and pushed, so Vercel git
+   auto-deploy now tracks it (§ Deployment). Ongoing work still happens on the
+   feature branch; fast-forward `main` to deploy.
+2. **Migrations `0001`–`0006` are all applied to the live DB.** `0005` adds
+   `ads.{source,kind,storage_path,source_url,file_bytes,mime,created_by}`,
+   recreates `ads_scored`, and creates the `library` bucket + policy; `0006` adds
+   `ads.winner_score` and recreates `ads_scored` again (applied 2026-07-18). There
+   is no linked project / `DATABASE_URL`, so any *future* migration is pasted into
+   the SQL editor by hand — confirm it's applied before relying on new columns.
 3. **Video deconstruction** — currently image-only. Options: a poster-frame
    extract, or Atria's transcript endpoint
    (`/open/v1/ad-accounts/{acct}/ads/{id}/transcript`) to feed Claude the spoken hook.
