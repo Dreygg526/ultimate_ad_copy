@@ -240,7 +240,9 @@ Last updated 2026-07-18.
 | Winner Score | `ads_scored` view (unchanged rule). Now applies only to **Meta-sourced** items, which carry Atria run dates; uploads have no dates → no score. Still shows the dates and "not reach" per hard constraint 1. |
 | RLS | Verified **from both sides**: a stranger gets nothing (42501 on writes, `[]` on reads, `signup_disabled` on signup); a member sees everything. Both halves matter — a policy blocking everyone would pass the stranger test alone. The `library` storage bucket uses the same `is_member()` policy as `brand-docs`/`rebuilds`. |
 | Library | **Rebuilt around uploads** (`0005_library_uploads.sql`). Upload image/video ≤1GB (browser→Storage resumable via `tus-js-client`), paste a Meta Ad Library URL (resolved through Atria) or a direct file link (stored as a reference). Source/kind filters, title/ID search, per-card delete. Items flow into Deconstruct→Rebuild unchanged (they're `ads` rows). `npm run verify:library`. |
-| Library — page-URL winner pull | **Added 2026-07-18** (`0006_winner_score_ingest.sql`). Paste an advertiser **page** URL (`…?view_all_page_id=<pageId>`) → `brandIdFromFacebookPageId` → `m<pageId>` → `listBrandAds({status:'active', order:'most_active'})` scans ≤200 active ads → `pickBrandWinners()` (mirrors the `ads_scored` rule in code: active + run ≥ per-brand p75, 30d fallback) → stores **only** winners, capped at 30, `source='meta'`, `winner_override=true`, and a frozen `winner_score`. `order:'most_active'` is load-bearing — `newest` truncates the long-run tail and misses the actual winners. The score badge + run dates + "not reach" note are back on Meta cards. Verified live against page `1035006909703902` (Steven West): 200 scanned, 30 winners, 32d→30d / score 100→97. |
+| Library — page-URL winner pull | **Added 2026-07-18** (`0006_winner_score_ingest.sql`). Paste an advertiser **page** URL (`…?view_all_page_id=<pageId>`) → `brandIdFromFacebookPageId` → `m<pageId>` → `listBrandAds({status:'active', order:'most_active'})` scans ≤200 active ads → `pickBrandWinners()` (mirrors the `ads_scored` rule in code: active + run ≥ per-brand p75, 30d fallback) → stores **only** winners, capped at 30 (a **max, not a target** — 5 winners stores 5, zero stores nothing with a message), `source='meta'`, `winner_override=true`, and a frozen `winner_score`. `order:'most_active'` is load-bearing — `newest` truncates the long-run tail and misses the actual winners. The score badge + run dates + "not reach" note are back on Meta cards. Verified live against page `1035006909703902` (Steven West): 200 scanned, 30 winners, 32d→30d / score 100→97. |
+| Library — permanence & Meta link | Winner **images** are re-hosted into the `library` bucket (`rehostImage`) so a saved winner survives Meta takedown + Atria CDN expiry; the grid/Deconstruct prefer the stored copy, fall back to the CDN. **Videos are deliberately NOT re-hosted** — buffering ad videos (measured 6–54 MB each, ~20 per pull) in one serverless function OOM'd/500'd the whole `/library` page (brand Michelle Bennett). Images only (≤15 MB, batches of 6, wrapped so a hiccup can't 500). Video permanence is deferred (needs a background job). Each Meta card has a **"View on Meta ↗"** link (`?id=<platform_native_id>`, the archive id — verified `id === 'm'+platform_native_id`); a dead page = the ad went inactive. **Re-check statuses** (rail) re-pulls status/dates from Atria — a *soft* signal (Atria lags Meta; no Meta API). |
+| Library — filter / sort / delete | **Filters** + **Sort** popovers (SSR via `<details>`, top-right): Platform (`platforms[]`), Media type (`kind`), Active status, **Run-date range** — the honest stand-in for Meta's "impressions by date". **Sort** by **Winner Score** (replaces the impossible "impressions high→low") or Most recent. No Language filter — Atria sends no language field (verified). Advertiser **sub-filter** under "From Meta". **Batch delete**: a client `LibraryGrid` hosts a Select mode (pick cards → `deleteItems`), plus a per-advertiser **"delete all"** ✕ in the rail (`deleteByBrand`, scoped to `source='meta'`, whole-brand not just the 60 shown). All deletes cascade decon/rebuild rows and remove bucket objects. |
 | Deconstruct (3a) | End-to-end on a real ad: Gemini located 8 elements, Claude marked 5, ~30s. `npm run verify:deconstruct [adId]`. |
 | Rebuild (3b) | Proven end-to-end on real NAC600 docs (see Known open). Editorial 3-column screen: source + deconstruction, our generated creative, editable headline/alternates/copy/CTA. Grounding gated three ways (action, `lib/rebuild.ts`, DB check). Pinned models: `claude-opus-4-8`, image `gemini-2.5-flash-image` — **NOT** the `gemini-3-pro-image`/`imagen-4.0-*` CLAUDE.md once named; those 503/404'd on 2026-07-16. `npm run verify:rebuild`. |
 | Brand | Doc upload → `brand-docs` bucket → text extracted (PDF via Gemini, DOCX via `mammoth`, txt/md direct) → `brand_docs` rows, versioned per kind. Unreadable files are rejected, not stored. |
@@ -296,7 +298,10 @@ Non-obvious things worth keeping:
   comes from `videos[]`/`images[]` (Atria CDN); `source_url` is art only for a
   direct-link upload reference. Getting this order wrong shows broken previews.
 - Video is stored/playable but **deconstruction is image-only** (Gemini vision
-  needs a still); the button is hidden for video with a note.
+  needs a still); the button is hidden for video with a note. Meta **video**
+  winners are also **not re-hosted** — their thumbnail streams from Atria's CDN
+  (see the "permanence" build-state row for why server-side video buffering was
+  the `/library` 500). Only images get the permanent copy.
 
 **The Gemini/Claude split is load-bearing, not stylistic.** Gemini reports only
 *what is on the creative and where*; Claude gets that list plus the ad copy and
@@ -328,6 +333,9 @@ build-state table. Remaining, roughly in order:
 3. **Video deconstruction** — currently image-only. Options: a poster-frame
    extract, or Atria's transcript endpoint
    (`/open/v1/ad-accounts/{acct}/ads/{id}/transcript`) to feed Claude the spoken hook.
+   Related: **video permanence** — meta video winners aren't re-hosted (see the
+   permanence build-state row); a background job (or browser→Storage) could copy
+   them into the `library` bucket without OOMing a serverless function.
 4. **~~Bulk Meta page-URL ingest~~ — DONE 2026-07-18.** `addByUrl` now handles
    both single-ad `?id=` URLs and advertiser `?view_all_page_id=` pages (the
    latter scans and pulls winners only). See the build-state table. Still open:
