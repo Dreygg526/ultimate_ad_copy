@@ -31,7 +31,7 @@ export type AddState = {
 // Page-URL winner pull limits (user decision, 2026-07-18).
 const SCAN_CAP = 200; // active ads scanned per paste, ~4 Atria calls at page_size 50
 const WINNER_CAP = 30; // winners actually stored per paste
-export type DeleteState = { error: string | null; ok?: boolean };
+export type DeleteState = { error: string | null; ok?: boolean; deleted?: number };
 
 const MAX_BYTES = 1_000_000_000; // 1 GB, matches the client-side guard.
 
@@ -118,6 +118,70 @@ export async function deleteItem(adId: string): Promise<DeleteState> {
 
   revalidatePath('/library');
   return { error: null, ok: true };
+}
+
+/**
+ * Delete a batch of items by atria_ad_id (the select-mode "delete N"). Same
+ * cascade + bucket cleanup as deleteItem, done in one round trip. RLS is the
+ * gate — a non-member's delete matches zero rows.
+ */
+export async function deleteItems(adIds: string[]): Promise<DeleteState> {
+  const ids = [...new Set((adIds ?? []).filter(Boolean))];
+  if (ids.length === 0) return { error: 'Nothing selected.' };
+
+  const db = await createClient();
+  const {
+    data: { user },
+  } = await db.auth.getUser();
+  if (!user) return { error: 'Sign in first.' };
+
+  const { data: rows } = await db.from('ads').select('storage_path').in('atria_ad_id', ids);
+  const paths = (rows ?? []).map((r) => r.storage_path).filter((p): p is string => !!p);
+
+  const { error, count } = await db
+    .from('ads')
+    .delete({ count: 'exact' })
+    .in('atria_ad_id', ids);
+  if (error) return { error: `Could not delete: ${error.message}` };
+
+  if (paths.length) await db.storage.from('library').remove(paths);
+
+  revalidatePath('/library');
+  return { error: null, ok: true, deleted: count ?? 0 };
+}
+
+/**
+ * Delete every Meta item from one advertiser (the rail "delete all" — e.g. all
+ * of Steven West). Scoped to source='meta' so it can't wipe uploads, and keyed
+ * on the stable atria_brand_id. Handles the whole brand, not just the 60 shown.
+ */
+export async function deleteByBrand(atriaBrandId: string): Promise<DeleteState> {
+  if (!atriaBrandId) return { error: 'No advertiser given.' };
+
+  const db = await createClient();
+  const {
+    data: { user },
+  } = await db.auth.getUser();
+  if (!user) return { error: 'Sign in first.' };
+
+  const { data: rows } = await db
+    .from('ads')
+    .select('storage_path')
+    .eq('source', 'meta')
+    .eq('atria_brand_id', atriaBrandId);
+  const paths = (rows ?? []).map((r) => r.storage_path).filter((p): p is string => !!p);
+
+  const { error, count } = await db
+    .from('ads')
+    .delete({ count: 'exact' })
+    .eq('source', 'meta')
+    .eq('atria_brand_id', atriaBrandId);
+  if (error) return { error: `Could not delete: ${error.message}` };
+
+  if (paths.length) await db.storage.from('library').remove(paths);
+
+  revalidatePath('/library');
+  return { error: null, ok: true, deleted: count ?? 0 };
 }
 
 /** Pull the Meta Ad Library id out of a pasted URL, if it is one. */

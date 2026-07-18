@@ -1,8 +1,9 @@
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/server';
 import { AddToLibrary } from './AddToLibrary';
-import { DeleteButton } from './DeleteButton';
 import { RefreshStatuses } from './RefreshStatuses';
+import { BrandDeleteButton } from './BrandDeleteButton';
+import { LibraryGrid, type CardItem } from './LibraryGrid';
 
 // Headroom for the page-URL winner pull (Atria calls + image re-hosts) and the
 // status re-check, which run as server actions on this route. Well under it in
@@ -56,8 +57,6 @@ interface Item {
   end_date: string | null;
   created_at: string;
 }
-
-const day = (iso: string | null) => (iso ? iso.slice(0, 10) : null);
 
 export default async function LibraryPage({
   searchParams,
@@ -141,6 +140,27 @@ export default async function LibraryPage({
     }),
   );
 
+  // Flatten into the serializable shape the client grid renders.
+  const cardItems: CardItem[] = rows.map((r) => {
+    const a = art.get(r.id);
+    return {
+      id: r.id,
+      atria_ad_id: r.atria_ad_id,
+      platform_native_id: r.platform_native_id,
+      source: r.source,
+      kind: r.kind,
+      brand_name: r.brand_name,
+      title: r.title,
+      status: r.status,
+      winner_score: r.winner_score,
+      run_days: r.run_days,
+      start_date: r.start_date,
+      end_date: r.end_date,
+      artUrl: a?.url ?? null,
+      isVideo: a?.isVideo ?? false,
+    };
+  });
+
   // Rail counts, scoped by RLS like everything else.
   const countSource = async (src: 'upload' | 'meta') => {
     const { count } = await db
@@ -210,17 +230,19 @@ export default async function LibraryPage({
           {metaBrands.length > 0 && (
             <div className="source-subs">
               {metaBrands.map((b) => (
-                <Link
-                  key={b.id}
-                  href={qs({
-                    source: 'meta',
-                    brand: sp.brand === b.id ? undefined : b.id,
-                  })}
-                  className={`source source-sub${sp.brand === b.id ? ' is-on' : ''}`}
-                >
-                  <span className="source-name">{b.name}</span>
-                  <span className="source-count num">{b.n}</span>
-                </Link>
+                <div key={b.id} className="source-sub-row">
+                  <Link
+                    href={qs({
+                      source: 'meta',
+                      brand: sp.brand === b.id ? undefined : b.id,
+                    })}
+                    className={`source source-sub${sp.brand === b.id ? ' is-on' : ''}`}
+                  >
+                    <span className="source-name">{b.name}</span>
+                    <span className="source-count num">{b.n}</span>
+                  </Link>
+                  <BrandDeleteButton brandId={b.id} label={b.name} count={b.n} />
+                </div>
               ))}
             </div>
           )}
@@ -383,69 +405,7 @@ export default async function LibraryPage({
           </p>
         )}
 
-        <div className="grid">
-          {rows.map((ad) => {
-            const a = art.get(ad.id);
-            const started = day(ad.start_date);
-            return (
-              <div key={ad.id} className="clip-wrap">
-                {ad.source === 'meta' && ad.winner_score != null && (
-                  <span
-                    className={`score${ad.winner_score >= 75 ? ' is-hot' : ''}`}
-                    title="Winner Score — within-brand run-length percentile. Longevity, not reach."
-                  >
-                    {ad.winner_score}
-                  </span>
-                )}
-                <DeleteButton adId={ad.atria_ad_id} label={ad.title ?? ad.brand_name ?? 'this item'} />
-                {ad.source === 'meta' && ad.platform_native_id && (
-                  <a
-                    className="meta-link"
-                    href={`https://www.facebook.com/ads/library/?id=${ad.platform_native_id}`}
-                    target="_blank"
-                    rel="noreferrer noopener"
-                    title="Open this ad on Meta Ad Library (a dead page means it went inactive)"
-                  >
-                    Meta ↗
-                  </a>
-                )}
-                <Link href={`/deconstruct/${ad.atria_ad_id}`} className="clip">
-                  <div className="clip-art">
-                    {a?.isVideo && <span className="clip-play">▶ video</span>}
-                    {a?.url ? (
-                      a.isVideo ? (
-                        <video src={a.url} muted preload="metadata" />
-                      ) : (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img src={a.url} alt="" loading="lazy" />
-                      )
-                    ) : (
-                      <div className="no-art">{ad.kind ?? 'no preview'}</div>
-                    )}
-                  </div>
-                  <div className="clip-meta">
-                    <div className="clip-brand">
-                      {ad.source === 'meta' ? (ad.brand_name ?? 'Meta ad') : 'Upload'}
-                      {ad.source === 'meta' && ad.status && (
-                        <span className={`tag ${ad.status === 'active' ? 'is-live' : 'is-dead'}`}>
-                          {ad.status === 'active' ? 'live' : 'ended'}
-                        </span>
-                      )}
-                      <span className="clip-kind">{ad.kind}</span>
-                    </div>
-                    {ad.title && <div className="clip-title">{ad.title}</div>}
-                    {ad.source === 'meta' && started && (
-                      <div className="clip-run">
-                        {started} → {ad.status === 'active' ? 'still running' : (day(ad.end_date) ?? 'ended')}
-                        {ad.run_days != null ? ` · ${ad.run_days}d` : ''}
-                      </div>
-                    )}
-                  </div>
-                </Link>
-              </div>
-            );
-          })}
-        </div>
+        <LibraryGrid items={cardItems} />
       </main>
     </div>
   );
