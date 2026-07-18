@@ -142,6 +142,75 @@ export function runDays(ad: Pick<AtriaAd, 'start_date' | 'end_date'>): number | 
   return Math.max(0, Math.floor((end.getTime() - start.getTime()) / 86_400_000));
 }
 
+/** Days an ACTIVE ad has been running, measured to now — matches the view's
+ *  `greatest(end_date, now()) - start_date` for active rows (end_date is only
+ *  "last seen", so a stale value must not cut the run short). */
+function activeRunDays(ad: Pick<AtriaAd, 'start_date' | 'end_date'>, now: number): number | null {
+  const start = parseAtriaDate(ad.start_date);
+  if (!start) return null;
+  const end = parseAtriaDate(ad.end_date)?.getTime() ?? now;
+  return Math.max(0, Math.floor((Math.max(end, now) - start.getTime()) / 86_400_000));
+}
+
+/** percentile_cont(p): linear interpolation between order stats, like Postgres. */
+function percentileCont(sortedAsc: number[], p: number): number {
+  const n = sortedAsc.length;
+  if (n === 1) return sortedAsc[0];
+  const rank = p * (n - 1);
+  const lo = Math.floor(rank);
+  const hi = Math.ceil(rank);
+  if (lo === hi) return sortedAsc[lo];
+  return sortedAsc[lo] + (rank - lo) * (sortedAsc[hi] - sortedAsc[lo]);
+}
+
+export interface ScoredWinner {
+  ad: AtriaAd;
+  /** Whole days running, to now. */
+  runDays: number;
+  /** Within-brand Winner Score 0–100: share of the brand's active ads at or
+   *  below this run length. LONGEVITY, not reach. */
+  score: number;
+}
+
+/**
+ * The winners out of one brand's ads, replicating the `ads_scored` SQL rule in
+ * code (see migrations 0002/0003 for the calibration): a winner is ACTIVE and
+ * its run length is in the top quartile of the brand's active ads (p75), with a
+ * 30-day fallback bar when there are fewer than 8 active ads to take a
+ * percentile of. run_days is LONGEVITY, not reach — Atria has no impressions.
+ *
+ * Pass the brand's ACTIVE ads (the page-URL path fetches status=active):
+ * inactive ads can't be winners and don't enter the percentile, exactly as the
+ * SQL `where status = 'active'` does. Returned sorted by run length, longest
+ * first — so a caller capping the count keeps the strongest.
+ */
+export function pickBrandWinners(activeAds: AtriaAd[]): ScoredWinner[] {
+  // Kept in sync with winner_min_sample()/winner_min_run_days() in the DB.
+  const WINNER_MIN_SAMPLE = 8;
+  const WINNER_MIN_RUN_DAYS = 30;
+
+  const now = Date.now();
+  const scored = activeAds
+    .map((ad) => ({ ad, runDays: activeRunDays(ad, now) }))
+    .filter((x): x is { ad: AtriaAd; runDays: number } => x.runDays !== null);
+
+  const n = scored.length;
+  if (n === 0) return [];
+
+  const runs = scored.map((x) => x.runDays).sort((a, b) => a - b);
+  const bar =
+    n >= WINNER_MIN_SAMPLE ? Math.ceil(percentileCont(runs, 0.75)) : WINNER_MIN_RUN_DAYS;
+
+  return scored
+    .filter((x) => x.runDays >= bar)
+    .map((x) => ({
+      ad: x.ad,
+      runDays: x.runDays,
+      score: Math.round((100 * runs.filter((r) => r <= x.runDays).length) / n),
+    }))
+    .sort((a, b) => b.runDays - a.runDays);
+}
+
 // --- rate limiting -----------------------------------------------------------
 // Serialise requests with a floor between them. The ad library does not change
 // by the second, so there is no reason to ever burst it.

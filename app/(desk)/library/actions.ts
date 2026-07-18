@@ -2,7 +2,15 @@
 
 import { revalidatePath } from 'next/cache';
 import { createClient } from '@/lib/supabase/server';
-import { getLibraryAd, parseAtriaDate, AtriaError } from '@/lib/atria';
+import {
+  getLibraryAd,
+  listBrandAds,
+  brandIdFromFacebookPageId,
+  pickBrandWinners,
+  parseAtriaDate,
+  AtriaError,
+  type AtriaAd,
+} from '@/lib/atria';
 
 // The Library is now a curated swipe file. Two intake paths land here — a
 // browser-direct file upload (saveUpload, the row half of a resumable upload)
@@ -10,7 +18,19 @@ import { getLibraryAd, parseAtriaDate, AtriaError } from '@/lib/atria';
 // Deconstruct → Rebuild workflow, which keys off this table, treats them like
 // any other ad.
 
-export type AddState = { error: string | null; adId?: string };
+export type AddState = {
+  error: string | null;
+  adId?: string;
+  // Page-URL winner pull: how many winners landed, out of how many active ads
+  // scanned, for which advertiser. Drives the success message.
+  added?: number;
+  scanned?: number;
+  brand?: string;
+};
+
+// Page-URL winner pull limits (user decision, 2026-07-18).
+const SCAN_CAP = 200; // active ads scanned per paste, ~4 Atria calls at page_size 50
+const WINNER_CAP = 30; // winners actually stored per paste
 export type DeleteState = { error: string | null; ok?: boolean };
 
 const MAX_BYTES = 1_000_000_000; // 1 GB, matches the client-side guard.
@@ -109,6 +129,173 @@ function metaLibraryId(url: URL): string | null {
   return id && /^\d{6,}$/.test(id) ? id : null;
 }
 
+/** Pull the advertiser page id out of a Meta Ad Library *page* URL
+ *  (…/ads/library/?...&view_all_page_id=<id>), if it is one and NOT a single-ad
+ *  URL. Returns null when an `?id=` is present so the single-ad path wins. */
+function metaPageId(url: URL): string | null {
+  const host = url.hostname.replace(/^www\./, '');
+  const isMeta = host.endsWith('facebook.com') || host.endsWith('fb.com');
+  if (!isMeta || !url.pathname.includes('/ads/library')) return null;
+  if (url.searchParams.get('id')) return null; // that's a single ad, handled elsewhere
+  const id = url.searchParams.get('view_all_page_id');
+  return id && /^\d{6,}$/.test(id) ? id : null;
+}
+
+/**
+ * Scan an advertiser's page and add only its WINNERS to the Library.
+ *
+ * The Facebook page id maps straight to Atria brand `m<pageId>` (no name
+ * search). We fetch that brand's ACTIVE ads (status=active — inactive ads can't
+ * be winners and the Winner Score is scored over active ads anyway), up to
+ * SCAN_CAP, then pickBrandWinners() applies the exact ads_scored rule and we
+ * store the top WINNER_CAP.
+ *
+ * NOTE (CLAUDE.md hard constraint 1): the pasted URL sorts by total_impressions,
+ * but Atria returns NO impressions. "Winner" here is the Winner Score —
+ * longevity (top-quartile run length) + active — NOT reach. The score is frozen
+ * per row in winner_score because only winners are stored, so the view can no
+ * longer recompute a within-brand percentile; winner_override keeps is_winner
+ * true. source_url is the page URL (never used as creative — art comes from
+ * images[]/videos[]).
+ */
+async function addPageWinners(
+  db: Awaited<ReturnType<typeof createClient>>,
+  userId: string,
+  pageUrl: string,
+  pageId: string,
+): Promise<AddState> {
+  const brandId = brandIdFromFacebookPageId(pageId);
+
+  const active: AtriaAd[] = [];
+  let cursor: string | undefined;
+  try {
+    while (active.length < SCAN_CAP) {
+      const res = await listBrandAds(brandId, {
+        status: 'active',
+        // most_active returns longest-running first, so a capped scan is
+        // guaranteed to contain the actual winners. 'newest' would truncate the
+        // long-run tail (a 40-day winner started 40 days ago isn't "newest") and
+        // could miss them entirely.
+        order: 'most_active',
+        page_size: 50,
+        cursor,
+      });
+      active.push(...res.ads);
+      if (!res.cursor) break;
+      cursor = res.cursor;
+    }
+  } catch (e) {
+    if (e instanceof AtriaError && e.isAccessProblem) {
+      return { error: 'Atria rejected the request (key or access). Nothing added.' };
+    }
+    return { error: e instanceof Error ? e.message : 'Could not reach Atria.' };
+  }
+
+  if (active.length === 0) {
+    return { error: `Atria has no active ads for that page (${pageId}).` };
+  }
+
+  const winners = pickBrandWinners(active).slice(0, WINNER_CAP);
+  const brand = active[0].brand_name ?? 'that advertiser';
+  if (winners.length === 0) {
+    return {
+      error: `Scanned ${active.length} active ads for ${brand}; none clear the Winner Score bar (active + top-quartile run length). Nothing added.`,
+    };
+  }
+
+  // Re-host each winner's creative into our own bucket in parallel, so a saved
+  // winner is permanent (see rehostCreative). Best-effort — a null just falls
+  // back to the Atria CDN URL still stored in images[]/videos[].
+  const rows = await Promise.all(
+    winners.map(async ({ ad, score }) => {
+      const kind: 'image' | 'video' = ad.videos?.length ? 'video' : 'image';
+      const creative = primaryCreativeUrl(ad);
+      const storage_path = creative
+        ? await rehostCreative(db, userId, creative.url, creative.kind)
+        : null;
+      return {
+        atria_ad_id: ad.id,
+        platform_native_id: ad.platform_native_id ?? null,
+        source: 'meta',
+        kind,
+        storage_path,
+        atria_brand_id: ad.brand_id,
+        brand_name: ad.brand_name,
+        status: ad.status,
+        platforms: ad.platforms ?? [],
+        display_format: ad.display_format ?? null,
+        title: ad.title,
+        body: ad.body,
+        caption: ad.caption,
+        cta_text: ad.cta_text,
+        link_url: ad.link_url,
+        images: ad.images ?? [],
+        videos: ad.videos ?? [],
+        start_date: parseAtriaDate(ad.start_date)?.toISOString() ?? null,
+        end_date: parseAtriaDate(ad.end_date)?.toISOString() ?? null,
+        // Frozen so the badge survives storing winners only (view can't recompute).
+        winner_score: score,
+        winner_override: true,
+        source_url: pageUrl, // the page URL, never the creative
+        created_by: userId,
+        synced_at: new Date().toISOString(),
+      };
+    }),
+  );
+
+  const { error } = await db.from('ads').upsert(rows, { onConflict: 'atria_ad_id' });
+  if (error) return { error: `Could not save winners: ${error.message}` };
+
+  revalidatePath('/library');
+  return { error: null, added: winners.length, scanned: active.length, brand };
+}
+
+/**
+ * Copy a creative off Atria's CDN into our own private `library` bucket so a
+ * saved winner is permanent — it survives the ad being pulled from Meta and the
+ * Atria CDN URL expiring. Best-effort: returns the storage path on success, or
+ * null to fall back to the Atria URL (images[]/videos[] stay stored either way).
+ *
+ * Runs server-side (unlike the 1 GB browser upload path), so it guards video by
+ * size: images are always small, but an unbounded video would blow the action's
+ * memory. A video with no/oversize content-length is left on the CDN.
+ */
+async function rehostCreative(
+  db: Awaited<ReturnType<typeof createClient>>,
+  userId: string,
+  url: string,
+  kind: 'image' | 'video',
+): Promise<string | null> {
+  const MAX_VIDEO_BYTES = 60_000_000;
+  try {
+    const res = await fetch(url, { signal: AbortSignal.timeout(20_000) });
+    if (!res.ok) return null;
+    const type = res.headers.get('content-type')?.split(';')[0].trim() || null;
+    if (kind === 'video') {
+      const len = Number(res.headers.get('content-length') ?? 0);
+      if (!len || len > MAX_VIDEO_BYTES) return null; // leave big/unknown video on the CDN
+    }
+    const buf = new Uint8Array(await res.arrayBuffer());
+    if (buf.byteLength === 0) return null;
+    const contentType = type ?? (kind === 'video' ? 'video/mp4' : 'image/jpeg');
+    const ext =
+      contentType.split('/')[1]?.replace('quicktime', 'mov').replace('jpeg', 'jpg') ||
+      (kind === 'video' ? 'mp4' : 'jpg');
+    const path = `${userId}/${crypto.randomUUID()}.${ext}`;
+    const { error } = await db.storage.from('library').upload(path, buf, { contentType });
+    return error ? null : path;
+  } catch {
+    return null;
+  }
+}
+
+/** The primary creative URL Atria holds for an ad (video first, then image). */
+function primaryCreativeUrl(ad: AtriaAd): { url: string; kind: 'image' | 'video' } | null {
+  if (ad.videos?.length) return { url: ad.videos[0].url, kind: 'video' };
+  if (ad.images?.length) return { url: ad.images[0].url, kind: 'image' };
+  return null;
+}
+
 /** HEAD the URL to learn what it is; fall back to the file extension. */
 async function sniff(url: string): Promise<string | null> {
   try {
@@ -166,13 +353,18 @@ export async function addByUrl(_prev: AddState, formData: FormData): Promise<Add
       return { error: e instanceof Error ? e.message : 'Could not reach Atria.' };
     }
 
-    const kind = ad.videos?.length ? 'video' : 'image';
+    const kind: 'image' | 'video' = ad.videos?.length ? 'video' : 'image';
+    const creative = primaryCreativeUrl(ad);
+    const storage_path = creative
+      ? await rehostCreative(db, user.id, creative.url, creative.kind)
+      : null;
     const { error } = await db.from('ads').upsert(
       {
         atria_ad_id: ad.id,
         platform_native_id: ad.platform_native_id ?? libId,
         source: 'meta',
         kind,
+        storage_path,
         atria_brand_id: ad.brand_id,
         brand_name: ad.brand_name,
         status: ad.status,
@@ -197,6 +389,12 @@ export async function addByUrl(_prev: AddState, formData: FormData): Promise<Add
 
     revalidatePath('/library');
     return { error: null, adId: ad.id };
+  }
+
+  // --- Meta Ad Library advertiser page (winners only) -----------------------
+  const pageId = metaPageId(url);
+  if (pageId) {
+    return addPageWinners(db, user.id, raw, pageId);
   }
 
   // --- Direct file link (reference) -----------------------------------------
@@ -226,4 +424,51 @@ export async function addByUrl(_prev: AddState, formData: FormData): Promise<Add
 
   revalidatePath('/library');
   return { error: null, adId };
+}
+
+export type RefreshState = { error: string | null; checked?: number; updated?: number };
+
+/**
+ * Re-check Meta items against Atria and update status + run dates. This is a
+ * SOFT refresh: Atria is a lagging snapshot, so it tells you what Atria last
+ * knew, NOT Meta's live truth (there is no Meta API — hard constraint 2). An ad
+ * that flips to inactive stays in the Library (winner_override keeps is_winner
+ * true) — it's a saved winner; the refresh just re-labels it "ended".
+ */
+export async function refreshMetaStatuses(): Promise<RefreshState> {
+  const db = await createClient();
+  const {
+    data: { user },
+  } = await db.auth.getUser();
+  if (!user) return { error: 'Sign in first.' };
+
+  const { data: metaRows, error: readErr } = await db
+    .from('ads')
+    .select('atria_ad_id, status, start_date, end_date')
+    .eq('source', 'meta')
+    .order('synced_at', { ascending: true })
+    .limit(200); // bound the Atria round-trips per click
+  if (readErr) return { error: `Could not read library: ${readErr.message}` };
+
+  const rows = metaRows ?? [];
+  let updated = 0;
+  for (const row of rows) {
+    let ad;
+    try {
+      ad = await getLibraryAd(row.atria_ad_id);
+    } catch {
+      continue; // gone from Atria or a transient error — leave the row as-is
+    }
+    const start = parseAtriaDate(ad.start_date)?.toISOString() ?? null;
+    const end = parseAtriaDate(ad.end_date)?.toISOString() ?? null;
+    if (ad.status === row.status && start === row.start_date && end === row.end_date) continue;
+    const { error } = await db
+      .from('ads')
+      .update({ status: ad.status, start_date: start, end_date: end, synced_at: new Date().toISOString() })
+      .eq('atria_ad_id', row.atria_ad_id);
+    if (!error) updated += 1;
+  }
+
+  revalidatePath('/library');
+  return { error: null, checked: rows.length, updated };
 }

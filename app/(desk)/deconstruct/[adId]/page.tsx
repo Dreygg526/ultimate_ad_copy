@@ -34,15 +34,15 @@ export default async function DeconstructAdPage({
   // references and Atria/Meta rows carry a URL (videos[] for a video, images[]
   // otherwise). A Meta row's source_url is the Facebook page, never the art.
   let art: string | null;
-  if (ad.source === 'upload') {
-    if (ad.storage_path) {
-      const { data: signed } = await db.storage
-        .from('library')
-        .createSignedUrl(ad.storage_path, 3600);
-      art = signed?.signedUrl ?? null;
-    } else {
-      art = ad.source_url ?? null;
-    }
+  if (ad.storage_path) {
+    // Re-hosted in our private bucket (uploads, and meta winners) — permanent,
+    // so Gemini reads our copy, not a CDN URL that may later expire.
+    const { data: signed } = await db.storage
+      .from('library')
+      .createSignedUrl(ad.storage_path, 3600);
+    art = signed?.signedUrl ?? null;
+  } else if (ad.source === 'upload') {
+    art = ad.source_url ?? null;
   } else {
     art = isVideo
       ? ((ad.videos as { url: string }[] | null)?.[0]?.url ?? null)

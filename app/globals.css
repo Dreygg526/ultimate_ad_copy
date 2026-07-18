@@ -388,6 +388,34 @@ body {
   border-color: var(--ink-soft);
   color: var(--ink);
 }
+
+/* "View on Meta" — sits left of the ✕, outside the card's <Link>, hover-revealed
+ * like the delete affordance. Chrome-neutral (pencil is annotation only). */
+.meta-link {
+  position: absolute;
+  top: 6px;
+  right: 34px;
+  z-index: 2;
+  font-family: var(--mono);
+  font-size: 10px;
+  line-height: 1;
+  padding: 5px 6px;
+  border: 1px solid var(--rule);
+  background: var(--surface);
+  color: var(--ink-soft);
+  border-radius: 2px;
+  text-decoration: none;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+.clip-wrap:hover .meta-link,
+.meta-link:focus-visible {
+  opacity: 1;
+}
+.meta-link:hover {
+  border-color: var(--ink-soft);
+  color: var(--ink);
+}
 .del-confirm {
   display: flex;
   gap: 4px;
@@ -448,6 +476,28 @@ body {
   vertical-align: middle;
 }
 .source.is-on .source-name {
+  color: var(--pencil);
+  font-weight: 600;
+}
+
+/* Advertiser sub-list under "From Meta". */
+.source-subs {
+  margin: 1px 0 2px 8px;
+  border-left: 1px solid var(--rule-soft);
+}
+.source-sub {
+  padding: 4px 0 4px 10px;
+  border-bottom: none;
+}
+.source-sub .source-name {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--ink-soft);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.source-sub.is-on .source-name {
   color: var(--pencil);
   font-weight: 600;
 }
@@ -529,6 +579,117 @@ body {
   background: var(--ink);
   color: var(--surface);
   border-color: var(--ink);
+}
+
+/* ---------- Library Filters / Sort popovers (SSR via <details>) ---------- */
+.lib-controls {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.pop {
+  position: relative;
+}
+.pop > summary {
+  list-style: none;
+  user-select: none;
+}
+.pop > summary::-webkit-details-marker {
+  display: none;
+}
+.pop > summary::after {
+  content: '▾';
+  margin-left: 6px;
+  font-size: 9px;
+  opacity: 0.7;
+}
+.pop[open] > summary {
+  background: var(--ink);
+  color: var(--surface);
+  border-color: var(--ink);
+}
+.pop-panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 20;
+  min-width: 240px;
+  background: var(--surface);
+  border: 1px solid var(--ink);
+  border-radius: 3px;
+  padding: 14px;
+  box-shadow: 0 8px 24px rgba(20, 23, 26, 0.16);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.pop-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.pop-field select,
+.pop-dates input {
+  font-family: var(--body);
+  font-size: 13px;
+  color: var(--ink);
+  background: var(--proof);
+  border: 1px solid var(--rule);
+  border-radius: 2px;
+  padding: 6px 8px;
+}
+.pop-dates {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-soft);
+}
+.pop-dates input {
+  flex: 1;
+  min-width: 0;
+}
+.pop-hint {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--ink-faint);
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+}
+.pop-actions {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 2px;
+}
+.pop-opt {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--ink);
+  text-decoration: none;
+  padding: 4px 0;
+}
+.pop-opt:hover {
+  color: var(--pencil);
+}
+.pop-dot {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  border: 1px solid var(--rule);
+  flex: none;
+}
+.pop-opt.is-on .pop-dot {
+  border-color: var(--stamp);
+  background:
+    radial-gradient(circle, var(--stamp) 0 45%, transparent 46%);
+}
+.pop-opt.is-on {
+  font-weight: 600;
 }
 
 .grid {

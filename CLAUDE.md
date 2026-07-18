@@ -15,7 +15,7 @@ From the source doc. Every screen maps to a step — keep it that way.
 | Step | Screen | What happens |
 |---|---|---|
 | Prep: brand context | Brand | Research docs → Supabase bucket → text extracted → injected into every rebuild |
-| 1. Find ads | Library | User-curated: upload image/video (≤1GB), paste a Meta Ad Library URL, or a direct file link. (The old Atria tracked-brand auto-sync is retired — see the pivot note in State of the build.) |
+| 1. Find ads | Library | User-curated: upload image/video (≤1GB), paste a Meta Ad Library URL (single ad **or** an advertiser page URL, which scans the page and pulls only its winners), or a direct file link. (The old Atria tracked-brand auto-sync is retired — see the pivot note in State of the build.) |
 | 2. Filter for winners | Library rail | Format, status, date window, Winner Score |
 | 3a. Deconstruct | Deconstruct | Gemini reads the image, Claude reads the structure |
 | 3b. Replicate | Rebuild | Claude writes headline + copy, Gemini generates image |
@@ -240,6 +240,7 @@ Last updated 2026-07-17.
 | Winner Score | `ads_scored` view (unchanged rule). Now applies only to **Meta-sourced** items, which carry Atria run dates; uploads have no dates → no score. Still shows the dates and "not reach" per hard constraint 1. |
 | RLS | Verified **from both sides**: a stranger gets nothing (42501 on writes, `[]` on reads, `signup_disabled` on signup); a member sees everything. Both halves matter — a policy blocking everyone would pass the stranger test alone. The `library` storage bucket uses the same `is_member()` policy as `brand-docs`/`rebuilds`. |
 | Library | **Rebuilt around uploads** (`0005_library_uploads.sql`). Upload image/video ≤1GB (browser→Storage resumable via `tus-js-client`), paste a Meta Ad Library URL (resolved through Atria) or a direct file link (stored as a reference). Source/kind filters, title/ID search, per-card delete. Items flow into Deconstruct→Rebuild unchanged (they're `ads` rows). `npm run verify:library`. |
+| Library — page-URL winner pull | **Added 2026-07-18** (`0006_winner_score_ingest.sql`). Paste an advertiser **page** URL (`…?view_all_page_id=<pageId>`) → `brandIdFromFacebookPageId` → `m<pageId>` → `listBrandAds({status:'active', order:'most_active'})` scans ≤200 active ads → `pickBrandWinners()` (mirrors the `ads_scored` rule in code: active + run ≥ per-brand p75, 30d fallback) → stores **only** winners, capped at 30, `source='meta'`, `winner_override=true`, and a frozen `winner_score`. `order:'most_active'` is load-bearing — `newest` truncates the long-run tail and misses the actual winners. The score badge + run dates + "not reach" note are back on Meta cards. Verified live against page `1035006909703902` (Steven West): 200 scanned, 30 winners, 32d→30d / score 100→97. |
 | Deconstruct (3a) | End-to-end on a real ad: Gemini located 8 elements, Claude marked 5, ~30s. `npm run verify:deconstruct [adId]`. |
 | Rebuild (3b) | Proven end-to-end on real NAC600 docs (see Known open). Editorial 3-column screen: source + deconstruction, our generated creative, editable headline/alternates/copy/CTA. Grounding gated three ways (action, `lib/rebuild.ts`, DB check). Pinned models: `claude-opus-4-8`, image `gemini-2.5-flash-image` — **NOT** the `gemini-3-pro-image`/`imagen-4.0-*` CLAUDE.md once named; those 503/404'd on 2026-07-16. `npm run verify:rebuild`. |
 | Brand | Doc upload → `brand-docs` bucket → text extracted (PDF via Gemini, DOCX via `mammoth`, txt/md direct) → `brand_docs` rows, versioned per kind. Unreadable files are rejected, not stored. |
@@ -314,16 +315,23 @@ build-state table. Remaining, roughly in order:
    Until these are done, invited users hit `/signin?error=link` or Vercel's SSO wall.
 1. **Merge `feature/rebuild-review-settings` → `main`** so Vercel git auto-deploy
    matches what the CLI shipped (§ Deployment).
-2. **Migrations `0003`–`0005` are applied to the live DB via the dashboard, but
+2. **Migrations `0003`–`0006` are applied to the live DB via the dashboard, but
    confirm before relying on new columns.** `0005` adds `ads.{source,kind,
    storage_path,source_url,file_bytes,mime,created_by}`, recreates `ads_scored`,
-   and creates the `library` bucket + policy. There is no linked project /
+   and creates the `library` bucket + policy. `0006` adds `ads.winner_score` and
+   recreates `ads_scored` again. **`0006` is NOT yet applied to prod** — the
+   page-URL winner pull inserts `winner_score` and the Library selects it, so
+   both break until it's pasted into the SQL editor. There is no linked project /
    `DATABASE_URL`, so migrations are pasted into the SQL editor by hand.
 3. **Video deconstruction** — currently image-only. Options: a poster-frame
    extract, or Atria's transcript endpoint
    (`/open/v1/ad-accounts/{acct}/ads/{id}/transcript`) to feed Claude the spoken hook.
-4. **Bulk Meta page-URL ingest** — `addByUrl` handles single-ad `?id=` URLs;
-   `?view_all_page_id=` (a whole advertiser) is not wired.
+4. **~~Bulk Meta page-URL ingest~~ — DONE 2026-07-18.** `addByUrl` now handles
+   both single-ad `?id=` URLs and advertiser `?view_all_page_id=` pages (the
+   latter scans and pulls winners only). See the build-state table. Still open:
+   winner-percentile is computed over the scanned ≤200-ad sample, not the brand's
+   full active cohort, so for a brand with >200 active ads the score is
+   approximate; and the whole-page transcript/video path is unchanged.
 5. **Optional Atria discovery search** — `searchAds()` is still in `lib/atria.ts`
    and unused. If automated discovery is ever wanted back, wire it as an in-app
    "pull into Library" action rather than a tracked-brand auto-sync.

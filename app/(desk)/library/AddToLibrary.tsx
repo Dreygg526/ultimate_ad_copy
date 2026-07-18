@@ -18,7 +18,7 @@ function UrlSubmit() {
   const { pending } = useFormStatus();
   return (
     <button type="submit" className="btn is-quiet" disabled={pending}>
-      {pending ? 'Fetching…' : 'Add URL'}
+      {pending ? 'Scanning…' : 'Add URL'}
     </button>
   );
 }
@@ -133,12 +133,24 @@ export function AddToLibrary() {
           name="url"
           type="url"
           className="input"
-          placeholder="Meta Ad Library URL or direct image/video link"
+          placeholder="Meta ad, advertiser page, or direct file link"
           autoComplete="off"
         />
         <UrlSubmit />
       </form>
+      <p className="add-hint">
+        Paste an advertiser page URL (…?view_all_page_id=…) to scan it and pull only its winners
+        (top-quartile run length — longevity, not reach). Or a single ad, or a direct image/video
+        link.
+      </p>
       {urlState.error && <p className="gate-error" style={{ marginTop: 6 }}>{urlState.error}</p>}
+      {urlState.added != null && !urlState.error && (
+        <p className="form-ok">
+          Added {urlState.added} winner{urlState.added === 1 ? '' : 's'} from {urlState.brand}
+          {urlState.scanned ? ` (scanned ${urlState.scanned} active ads)` : ''}. Scroll the grid to
+          see them.
+        </p>
+      )}
       {urlState.adId && !urlState.error && (
         <p className="form-ok">Added. Refresh or scroll the grid to see it.</p>
       )}
