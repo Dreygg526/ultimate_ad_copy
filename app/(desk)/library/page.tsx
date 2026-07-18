@@ -4,6 +4,11 @@ import { AddToLibrary } from './AddToLibrary';
 import { DeleteButton } from './DeleteButton';
 import { RefreshStatuses } from './RefreshStatuses';
 
+// Headroom for the page-URL winner pull (Atria calls + image re-hosts) and the
+// status re-check, which run as server actions on this route. Well under it in
+// practice; this just stops a slow CDN from tripping the platform default.
+export const maxDuration = 60;
+
 // Step 1, rebuilt: the Library is a curated swipe file the buyer stocks — files
 // uploaded straight to Storage, and ads pulled from a Meta Ad Library URL. Both
 // are `ads` rows (source 'upload' | 'meta'), so opening one runs the same

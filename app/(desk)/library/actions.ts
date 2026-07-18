@@ -203,45 +203,55 @@ async function addPageWinners(
     };
   }
 
-  // Re-host each winner's creative into our own bucket in parallel, so a saved
-  // winner is permanent (see rehostCreative). Best-effort — a null just falls
-  // back to the Atria CDN URL still stored in images[]/videos[].
-  const rows = await Promise.all(
-    winners.map(async ({ ad, score }) => {
-      const kind: 'image' | 'video' = ad.videos?.length ? 'video' : 'image';
-      const creative = primaryCreativeUrl(ad);
-      const storage_path = creative
-        ? await rehostCreative(db, userId, creative.url, creative.kind)
-        : null;
-      return {
-        atria_ad_id: ad.id,
-        platform_native_id: ad.platform_native_id ?? null,
-        source: 'meta',
-        kind,
-        storage_path,
-        atria_brand_id: ad.brand_id,
-        brand_name: ad.brand_name,
-        status: ad.status,
-        platforms: ad.platforms ?? [],
-        display_format: ad.display_format ?? null,
-        title: ad.title,
-        body: ad.body,
-        caption: ad.caption,
-        cta_text: ad.cta_text,
-        link_url: ad.link_url,
-        images: ad.images ?? [],
-        videos: ad.videos ?? [],
-        start_date: parseAtriaDate(ad.start_date)?.toISOString() ?? null,
-        end_date: parseAtriaDate(ad.end_date)?.toISOString() ?? null,
-        // Frozen so the badge survives storing winners only (view can't recompute).
-        winner_score: score,
-        winner_override: true,
-        source_url: pageUrl, // the page URL, never the creative
-        created_by: userId,
-        synced_at: new Date().toISOString(),
-      };
-    }),
-  );
+  // Re-host winner IMAGES into our own bucket so a saved winner is permanent
+  // (videos stay on Atria's CDN — see rehostImage for why). Bounded concurrency:
+  // this runs in a serverless function, so buffering everything at once is what
+  // OOM'd the pull. Best-effort — a null falls back to the Atria URL still in
+  // images[]/videos[]. Wrapped so a re-host hiccup can never 500 the page.
+  const rehosted = new Map<string, string>();
+  try {
+    const images = winners.filter((w) => !w.ad.videos?.length && w.ad.images?.length);
+    const BATCH = 6;
+    for (let i = 0; i < images.length; i += BATCH) {
+      const slice = images.slice(i, i + BATCH);
+      const paths = await Promise.all(
+        slice.map((w) => rehostImage(db, userId, w.ad.images[0].url)),
+      );
+      slice.forEach((w, j) => {
+        if (paths[j]) rehosted.set(w.ad.id, paths[j]!);
+      });
+    }
+  } catch {
+    // Ignore — every row just keeps its Atria CDN fallback.
+  }
+
+  const rows = winners.map(({ ad, score }) => ({
+    atria_ad_id: ad.id,
+    platform_native_id: ad.platform_native_id ?? null,
+    source: 'meta',
+    kind: ad.videos?.length ? 'video' : 'image',
+    storage_path: rehosted.get(ad.id) ?? null,
+    atria_brand_id: ad.brand_id,
+    brand_name: ad.brand_name,
+    status: ad.status,
+    platforms: ad.platforms ?? [],
+    display_format: ad.display_format ?? null,
+    title: ad.title,
+    body: ad.body,
+    caption: ad.caption,
+    cta_text: ad.cta_text,
+    link_url: ad.link_url,
+    images: ad.images ?? [],
+    videos: ad.videos ?? [],
+    start_date: parseAtriaDate(ad.start_date)?.toISOString() ?? null,
+    end_date: parseAtriaDate(ad.end_date)?.toISOString() ?? null,
+    // Frozen so the badge survives storing winners only (view can't recompute).
+    winner_score: score,
+    winner_override: true,
+    source_url: pageUrl, // the page URL, never the creative
+    created_by: userId,
+    synced_at: new Date().toISOString(),
+  }));
 
   const { error } = await db.from('ads').upsert(rows, { onConflict: 'atria_ad_id' });
   if (error) return { error: `Could not save winners: ${error.message}` };
@@ -251,49 +261,41 @@ async function addPageWinners(
 }
 
 /**
- * Copy a creative off Atria's CDN into our own private `library` bucket so a
- * saved winner is permanent — it survives the ad being pulled from Meta and the
- * Atria CDN URL expiring. Best-effort: returns the storage path on success, or
- * null to fall back to the Atria URL (images[]/videos[] stay stored either way).
+ * Copy an IMAGE off Atria's CDN into our own private `library` bucket so a saved
+ * winner is permanent — it survives the ad being pulled from Meta and the Atria
+ * CDN URL expiring. Best-effort: returns the storage path, or null to fall back
+ * to the Atria URL (images[]/videos[] stay stored either way).
  *
- * Runs server-side (unlike the 1 GB browser upload path), so it guards video by
- * size: images are always small, but an unbounded video would blow the action's
- * memory. A video with no/oversize content-length is left on the CDN.
+ * Images only — NOT video. This runs inside a serverless function (Vercel), and
+ * buffering ad videos (measured 6–54 MB each, ~20 per pull) into memory in one
+ * request OOMs/times the function out and 500s the whole page. Video permanence
+ * would need a background job or the browser→Storage path; until then a meta
+ * video's thumbnail is served from Atria's CDN (deconstruction is image-only
+ * anyway). A byte cap guards against a pathologically large "image" too.
  */
-async function rehostCreative(
+async function rehostImage(
   db: Awaited<ReturnType<typeof createClient>>,
   userId: string,
   url: string,
-  kind: 'image' | 'video',
 ): Promise<string | null> {
-  const MAX_VIDEO_BYTES = 60_000_000;
+  const MAX_IMAGE_BYTES = 15_000_000;
   try {
-    const res = await fetch(url, { signal: AbortSignal.timeout(20_000) });
+    const res = await fetch(url, { signal: AbortSignal.timeout(15_000) });
     if (!res.ok) return null;
     const type = res.headers.get('content-type')?.split(';')[0].trim() || null;
-    if (kind === 'video') {
-      const len = Number(res.headers.get('content-length') ?? 0);
-      if (!len || len > MAX_VIDEO_BYTES) return null; // leave big/unknown video on the CDN
-    }
+    if (type && !type.startsWith('image/')) return null; // never buffer non-images
+    const len = Number(res.headers.get('content-length') ?? 0);
+    if (len > MAX_IMAGE_BYTES) return null;
     const buf = new Uint8Array(await res.arrayBuffer());
-    if (buf.byteLength === 0) return null;
-    const contentType = type ?? (kind === 'video' ? 'video/mp4' : 'image/jpeg');
-    const ext =
-      contentType.split('/')[1]?.replace('quicktime', 'mov').replace('jpeg', 'jpg') ||
-      (kind === 'video' ? 'mp4' : 'jpg');
+    if (buf.byteLength === 0 || buf.byteLength > MAX_IMAGE_BYTES) return null;
+    const contentType = type ?? 'image/jpeg';
+    const ext = contentType.split('/')[1]?.replace('jpeg', 'jpg') || 'jpg';
     const path = `${userId}/${crypto.randomUUID()}.${ext}`;
     const { error } = await db.storage.from('library').upload(path, buf, { contentType });
     return error ? null : path;
   } catch {
     return null;
   }
-}
-
-/** The primary creative URL Atria holds for an ad (video first, then image). */
-function primaryCreativeUrl(ad: AtriaAd): { url: string; kind: 'image' | 'video' } | null {
-  if (ad.videos?.length) return { url: ad.videos[0].url, kind: 'video' };
-  if (ad.images?.length) return { url: ad.images[0].url, kind: 'image' };
-  return null;
 }
 
 /** HEAD the URL to learn what it is; fall back to the file extension. */
@@ -354,10 +356,11 @@ export async function addByUrl(_prev: AddState, formData: FormData): Promise<Add
     }
 
     const kind: 'image' | 'video' = ad.videos?.length ? 'video' : 'image';
-    const creative = primaryCreativeUrl(ad);
-    const storage_path = creative
-      ? await rehostCreative(db, user.id, creative.url, creative.kind)
-      : null;
+    // Re-host the image for permanence; videos stay on Atria's CDN (see rehostImage).
+    const storage_path =
+      kind === 'image' && ad.images?.length
+        ? await rehostImage(db, user.id, ad.images[0].url)
+        : null;
     const { error } = await db.from('ads').upsert(
       {
         atria_ad_id: ad.id,
