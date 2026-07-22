@@ -5,7 +5,7 @@ import { useLayoutEffect, useRef, useState } from 'react';
 /**
  * Ad copy runs long. These are direct-response stories — a liver ad on the desk
  * right now is ~2,000 words — and printed whole they push the marks and the
- * deconstruction off the panel, which is the part of this screen worth reading.
+ * copy off the panel, which is the part of this screen worth reading.
  *
  * The toggle is measured, not guessed from a character count: a body only gets
  * one if it actually overflows at the current width, so the button never appears

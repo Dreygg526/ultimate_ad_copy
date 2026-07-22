@@ -8,7 +8,6 @@
     "start": "next start",
     "lint": "eslint",
     "verify:atria": "node scripts/verify-atria.mjs",
-    "verify:deconstruct": "tsx --conditions=react-server scripts/verify-deconstruct.mts",
     "verify:rebuild": "tsx --conditions=react-server scripts/verify-rebuild.mts",
     "verify:library": "tsx --conditions=react-server scripts/verify-library.mts"
   },

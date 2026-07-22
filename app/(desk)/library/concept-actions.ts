@@ -7,18 +7,16 @@ import { generateRebuild, generateImage, type GroundingDoc } from '@/lib/rebuild
 /**
  * Click an ad in the Library, get a concept. One call, optimised for wall-clock.
  *
- * Three things are deliberately NOT in this path, all to cut time to first copy:
+ * Deliberately NOT in this path, all to cut time to first copy:
  *
- *  1. No fresh deconstruction. A replication is written from the source ad's own
- *     headline, body and CTA — the vision read's marks were never load-bearing
- *     for it, and running it cost ~30s before Claude saw a word. An EXISTING
- *     deconstruction is still passed through (it's free), and the Deconstruct
- *     screen still produces one on demand.
+ *  1. No deconstruction — the feature is gone entirely (removed 2026-07-23).
+ *     Reading why an ad works is redundant when the job is to replicate it, and
+ *     the vision pass cost ~30s before Claude wrote a word.
  *  2. No image. Gemini's shoot is the slowest part and the least useful half —
  *     a buyer judges the concept on the words. shootImage() runs from the
  *     client once the copy is already on screen.
- *  3. No high effort. See lib/rebuild.ts — the user chose speed over polish
- *     explicitly.
+ *  3. No high effort, no alternate headlines, no replication map. See
+ *     lib/rebuild.ts — the user chose speed over polish explicitly.
  *
  * The grounding rule is unchanged (CLAUDE.md hard constraint 3): no docs, no
  * rebuild — lib/rebuild.ts refuses and the DB's rebuild_must_be_grounded check
@@ -27,19 +25,12 @@ import { generateRebuild, generateImage, type GroundingDoc } from '@/lib/rebuild
 
 export type ConceptState = {
   error: string | null;
-  /** Set when the copy landed but something softer didn't (e.g. no deconstruction). */
-  note?: string | null;
   rebuildId?: string;
   adId?: string;
   headline?: string;
-  alternates?: string[];
   copy?: string;
   cta?: string;
   notes?: string | null;
-  mirror?: string[];
-  /** Marks from the deconstruction, if the source was an image. */
-  marks?: { heading: string; body: string }[];
-  summary?: string | null;
 };
 
 /** Latest version per kind grounds the concept; superseded ones stay history. */
@@ -78,8 +69,8 @@ export async function makeConcept(
     .maybeSingle();
   if (!ad) return { error: 'That ad is not in the library.' };
 
-  // The brand, its research and any prior deconstruction are independent reads —
-  // run them together so nothing waits on anything but Claude.
+  // Brand and research are independent reads — run them together so nothing
+  // waits on anything but Claude.
   const brandWork = (async () => {
     const [{ data: brand }, { data: docRows }] = await Promise.all([
       db.from('brands').select('id, name').eq('id', brandId).maybeSingle(),
@@ -92,32 +83,13 @@ export async function makeConcept(
     return { brand, docs: latestPerKind((docRows ?? []) as { kind: string }[]) };
   })();
 
-  // Only an EXISTING deconstruction — one cheap read, never a fresh vision pass.
-  // Running one here cost ~30s before Claude started writing, and a replication
-  // works from the source's own copy. Use the Deconstruct screen when the marks
-  // are actually wanted.
-  const deconWork = db
-    .from('deconstructions')
-    .select('summary, marks')
-    .eq('ad_id', ad.id)
-    .order('created_at', { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  const [{ brand, docs }, { data: decon }] = await Promise.all([brandWork, deconWork]);
+  const { brand, docs } = await brandWork;
   if (!brand) return { error: 'That brand is gone.' };
-
-  const marks = ((decon?.marks ?? []) as { heading: string; body: string }[]).map((m) => ({
-    heading: m.heading,
-    body: m.body,
-  }));
 
   let draft;
   try {
     draft = await generateRebuild({
       ad,
-      summary: decon?.summary ?? null,
-      marks,
       brandName: brand.name,
       docs,
     });
@@ -126,20 +98,15 @@ export async function makeConcept(
     return { error: e instanceof Error ? e.message : 'Rebuild failed.' };
   }
 
-  // `mirror` has no column of its own, so it rides in notes rather than needing
-  // a migration applied by hand before this screen works at all.
-  const notes = [draft.notes, ...draft.mirror.map((m) => `· ${m}`)].join('\n');
-
   const { data: saved, error } = await db
     .from('rebuilds')
     .insert({
       ad_id: ad.id,
       brand_id: brand.id,
       headline: draft.headline,
-      alternates: draft.alternates,
       copy: draft.copy,
       cta: draft.cta,
-      notes,
+      notes: draft.notes,
       art_direction: draft.art_direction,
       image_path: null, // shot separately — see shootImage
       status: 'draft',
@@ -164,13 +131,9 @@ export async function makeConcept(
     rebuildId: saved?.id,
     adId,
     headline: draft.headline,
-    alternates: draft.alternates,
     copy: draft.copy,
     cta: draft.cta,
     notes: draft.notes,
-    mirror: draft.mirror,
-    marks,
-    summary: decon?.summary ?? null,
   };
 }
 

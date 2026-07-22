@@ -8,10 +8,10 @@ import { DeleteButton } from './DeleteButton';
 import { deleteItems } from './actions';
 import { makeConcept, shootImage, type ConceptState } from './concept-actions';
 
-// The Library IS the workflow now. Click an ad and the build panel opens beside
-// it: pick a brand, one button, the concept renders in place. Deconstruct and
-// Rebuild are still routes — for reading marks and for editing a saved draft —
-// but they're reached from here, not walked through in order.
+// The Library IS the workflow. Click an ad and the build panel opens beside it:
+// pick a brand, one button, the concept renders in place. /rebuild/[adId] is
+// still a route, for editing a saved draft — reached from the concept just made,
+// not walked through in order.
 //
 // Select mode (batch delete) still lives here too; picking a card for a concept
 // and picking cards to delete are different modes, so they don't collide.
@@ -330,27 +330,17 @@ export function LibraryDesk({
                 {picked.brand_name ?? 'Upload'}
                 {picked.run_days != null ? ` · ran ${picked.run_days}d` : ''}
                 {picked.winner_score != null ? ` · score ${picked.winner_score}` : ''}
-                {' · '}
-                <Link href={`/deconstruct/${picked.atria_ad_id}`}>deconstruct →</Link>
               </p>
             </div>
           )}
 
           {state.error && <p className="gate-error">{state.error}</p>}
-          {state.note && !state.error && <p className="rail-note">{state.note}</p>}
 
           {state.headline && (
             <div className="make-concept">
               <div className="notes-sec">
                 <p className="eyebrow">Headline</p>
                 <p className="ed-headline">{state.headline}</p>
-                {state.alternates && state.alternates.length > 0 && (
-                  <ul className="make-alts">
-                    {state.alternates.map((a, i) => (
-                      <li key={i}>{a}</li>
-                    ))}
-                  </ul>
-                )}
                 {state.cta && (
                   <p className="ed-cta-line">
                     <span className="eyebrow">CTA</span> {state.cta}
@@ -362,17 +352,6 @@ export function LibraryDesk({
                 <p className="eyebrow">Body copy</p>
                 <p className="make-copy">{state.copy}</p>
               </div>
-
-              {state.mirror && state.mirror.length > 0 && (
-                <div className="notes-sec">
-                  <p className="eyebrow">What was replicated — theirs → ours</p>
-                  <ul className="make-mirror">
-                    {state.mirror.map((m, i) => (
-                      <li key={i}>{m}</li>
-                    ))}
-                  </ul>
-                </div>
-              )}
 
               <div className="notes-sec">
                 <p className="eyebrow">Creative</p>

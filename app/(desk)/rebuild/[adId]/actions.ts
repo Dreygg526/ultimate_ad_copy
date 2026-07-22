@@ -57,23 +57,10 @@ export async function runRebuild(_prev: ActionState, formData: FormData): Promis
     docs.push(d as unknown as GroundingDoc);
   }
 
-  const { data: decon } = await db
-    .from('deconstructions')
-    .select('summary, marks')
-    .eq('ad_id', ad.id)
-    .order('created_at', { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
   let draft;
   try {
     draft = await generateRebuild({
       ad,
-      summary: decon?.summary ?? null,
-      marks: ((decon?.marks ?? []) as { heading: string; body: string }[]).map((m) => ({
-        heading: m.heading,
-        body: m.body,
-      })),
       brandName: brand.name,
       docs,
     });
@@ -104,7 +91,6 @@ export async function runRebuild(_prev: ActionState, formData: FormData): Promis
     ad_id: ad.id,
     brand_id: brand.id,
     headline: draft.headline,
-    alternates: draft.alternates,
     copy: draft.copy,
     cta: draft.cta,
     notes: draft.notes,

@@ -28,7 +28,8 @@ export { ACCEPTED_EXTENSIONS, ACCEPT_ATTR, isAcceptedFile } from '@/lib/doc-form
  * .docx to Gemini; it 400s.
  */
 
-// Pinned, not an alias — same reasoning as lib/vision.ts. If this 404s, the
+// Pinned, not an alias — an alias would change extraction with nothing in the
+// repo changing. If this 404s, the
 // preview retired; repoint it here.
 const EXTRACT_MODEL = 'gemini-3.1-pro-preview';
 

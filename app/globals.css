@@ -1784,30 +1784,6 @@ input[type='file'].input {
   white-space: pre-wrap;
 }
 
-.make-alts {
-  margin: 8px 0 0;
-  padding-left: 16px;
-  font-size: 12px;
-  line-height: 1.5;
-  color: var(--ink-soft);
-}
-
-/* The replication check: theirs → ours, in the source's own order. */
-.make-mirror {
-  margin: 8px 0 0;
-  padding-left: 0;
-  list-style: none;
-  font-family: var(--mono);
-  font-size: 11px;
-  line-height: 1.5;
-  color: var(--ink-soft);
-}
-.make-mirror li {
-  padding: 4px 0 4px 8px;
-  border-left: 2px solid var(--rule);
-  margin-bottom: 4px;
-}
-
 /* Run-length window chips (7d+ / 14d+ / 30d+ / 60d+) */
 .daybar {
   display: flex;

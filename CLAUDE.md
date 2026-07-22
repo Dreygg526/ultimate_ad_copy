@@ -1,8 +1,8 @@
 # Teardown
 
 Internal tool for **The Standard Lab**'s media buyers. Find native ads that are
-winning, deconstruct why they work, and rebuild them — image, headline, copy —
-against our own brand, audience, and mechanism research.
+winning and rebuild them — image, headline, copy — against our own brand,
+audience, and mechanism research.
 
 Users are Rob, Nemanja, and the admin (`ai_support@thestandardlab.com`). They are
 expert media buyers who live in this tool daily. Write for people who know the
@@ -18,24 +18,32 @@ From the source doc. Every screen maps to a step — keep it that way.
 | 1. Find ads | Library | User-curated: upload image/video (≤1GB), paste a Meta Ad Library URL (single ad **or** an advertiser page URL, which scans the page and pulls only its winners), or a direct file link. (The old Atria tracked-brand auto-sync is retired — see the pivot note in State of the build.) |
 | 2. Filter for winners | Library rail | Format, status, date window, Winner Score |
 | 3a+3b. Build | **Library** | **The whole workflow.** Click an ad in the grid → build panel opens beside it → one button writes the replication; the image follows on its own |
-| 3a. Deconstruct | Deconstruct | Gemini reads the image, Claude reads the structure — on demand, from the ad you're looking at |
 | 3b. Replicate | Rebuild | Editing a saved draft, sending it for review |
 | 3c. Review | Review | draft → waiting → changes asked → approved |
 
 **The Library is the app.** Concepts get made there and nowhere else.
-`/deconstruct/[adId]` and `/rebuild/[adId]` are still routes but are **not nav
-tabs** — they're reached from the ad in hand. Re-adding them to `TopBar`, or
-adding another "produce a concept" screen, rebuilds the four-screen errand the
-user rejected twice. There was briefly a separate `/make` screen (2026-07-22);
-it was folded into the Library the same day for exactly this reason.
+`/rebuild/[adId]` is still a route but is **not a nav tab** — it is reached from
+the concept a buyer just built. Adding another "produce a concept" screen
+rebuilds the four-screen errand the user rejected twice. There was briefly a
+separate `/make` screen (2026-07-22); it was folded into the Library the same day
+for exactly this reason.
+
+**Deconstruct is deleted — do not rebuild it.** Removed 2026-07-23 on the user's
+call: reading *why* an ad works is a separate job from *replicating* it, and the
+replication is written from the source ad's own copy. It cost ~30s per concept
+and a Gemini vision dependency for output nobody read. Gone: `/deconstruct/*`,
+`lib/deconstruct.ts`, `lib/vision.ts`, `app/components/Proof.tsx`, the
+grease-pencil marks, `verify:deconstruct`. The `deconstructions` table still
+exists in the DB, unused and unreferenced — purge it whenever; no code depends
+on it.
 
 ## Stack
 
 - **Next.js** (App Router, TypeScript) on **Vercel**
 - **Supabase** — Postgres, Auth, Storage buckets (account is Pro). RLS on every table.
 - **Atria API** — ad ingest. See the hard constraint below.
-- **Claude** — deconstruction, headline, copy, brand voice, review
-- **Gemini** — vision (reading ad creative) and image generation
+- **Claude** — headline, copy, brand voice, review
+- **Gemini** — image generation (creative-reading went with Deconstruct)
 
 Secrets live in `.env.local`, never in the repo. Required: `ATRIA_API_KEY`,
 `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, plus Supabase URL / anon / service keys.
@@ -190,10 +198,10 @@ Type: **Archivo** (display, 600–800, tight) · **IBM Plex Sans** (body) ·
 **IBM Plex Mono** (scores, dates, IDs, anything tabular). Inline as `@font-face`
 data URIs where a CDN isn't available.
 
-**Signature element:** numbered grease-pencil marks drawn directly on the ad
-image, wired bidirectionally to the deconstruction list — hover a note, its mark
-lights up on the creative. This is the one memorable thing; keep everything
-around it quiet.
+**Signature element (retired).** The mockup's numbered grease-pencil marks drawn
+on the creative went with Deconstruct on 2026-07-23. There is no annotation left
+to spend the pencil red on, and it was never allowed on chrome — so it now
+appears nowhere. Keep the surround quiet regardless.
 
 **Single-theme light, deliberately.** A dark surround changes how you read
 creative — the same crop looks warmer and more contrasty on black, and you'd be
@@ -216,10 +224,10 @@ Mockup (approved direction): https://claude.ai/code/artifact/b259e888-3b9a-44e3-
   and adaptive thinking must be set explicitly — omitting it means no thinking.)
 - **Model IDs are pinned, never aliased.** `claude-opus-4-8` and
   `gemini-3.1-pro-preview`. An alias like `gemini-pro-latest` would change what
-  the deconstruction says with nothing in the repo changing — unreproducible
-  marks. The cost is that Gemini previews retire: `gemini-3-pro-preview` already
-  has, **and `models.list` still advertises it**, so a 404 on a listed model is
-  expected rather than mysterious. Repoint `VISION_MODEL` in `lib/vision.ts`.
+  the copy says with nothing in the repo changing — unreproducible output. The
+  cost is that Gemini previews retire: `gemini-3-pro-preview` already has, **and
+  `models.list` still advertises it**, so a 404 on a listed model is expected
+  rather than mysterious.
 - Ad creative in mockups/tests is CSS-composed, never a real fetched image —
   no rights issues, no external requests. This does **not** apply to the product
   itself, which renders real creative from Atria's CDN — that is correct.
@@ -247,18 +255,18 @@ Last updated 2026-07-18.
 | Ingest | **Retired as the Library backbone** (see pivot note below). `lib/ingest.ts` and `/api/sync` are removed; the ~3,600 legacy Atria rows stay in `ads` (source `atria`) but are filtered out of the Library. Atria is now on-demand only, via `getLibraryAd` (`lib/atria.ts`) for the Meta-URL path. |
 | Winner Score | `ads_scored` view (unchanged rule). Now applies only to **Meta-sourced** items, which carry Atria run dates; uploads have no dates → no score. Still shows the dates and "not reach" per hard constraint 1. |
 | RLS | Verified **from both sides**: a stranger gets nothing (42501 on writes, `[]` on reads, `signup_disabled` on signup); a member sees everything. Both halves matter — a policy blocking everyone would pass the stranger test alone. The `library` storage bucket uses the same `is_member()` policy as `brand-docs`/`rebuilds`. |
-| Library | **Rebuilt around uploads** (`0005_library_uploads.sql`). Upload image/video ≤1GB (browser→Storage resumable via `tus-js-client`), paste a Meta Ad Library URL (resolved through Atria) or a direct file link (stored as a reference). Source/kind filters, title/ID search, per-card delete. Items flow into Deconstruct→Rebuild unchanged (they're `ads` rows). `npm run verify:library`. |
+| Library | **Rebuilt around uploads** (`0005_library_uploads.sql`). Upload image/video ≤1GB (browser→Storage resumable via `tus-js-client`), paste a Meta Ad Library URL (resolved through Atria) or a direct file link (stored as a reference). Source/kind filters, title/ID search, per-card delete. Items are built from directly (they're `ads` rows). `npm run verify:library`. |
 | Library — page-URL winner pull | **Added 2026-07-18** (`0006_winner_score_ingest.sql`). Paste an advertiser **page** URL (`…?view_all_page_id=<pageId>`) → `brandIdFromFacebookPageId` → `m<pageId>` → `listBrandAds({status:'active', order:'most_active'})` scans ≤200 active ads → `pickBrandWinners()` (mirrors the `ads_scored` rule in code: active + run ≥ per-brand p75, 30d fallback) → stores **only** winners, capped at 30 (a **max, not a target** — 5 winners stores 5, zero stores nothing with a message), `source='meta'`, `winner_override=true`, and a frozen `winner_score`. `order:'most_active'` is load-bearing — `newest` truncates the long-run tail and misses the actual winners. The score badge + run dates + "not reach" note are back on Meta cards. Verified live against page `1035006909703902` (Steven West): 200 scanned, 30 winners, 32d→30d / score 100→97. |
-| Library — permanence & Meta link | Winner **images** are re-hosted into the `library` bucket (`rehostImage`) so a saved winner survives Meta takedown + Atria CDN expiry; the grid/Deconstruct prefer the stored copy, fall back to the CDN. **Videos are deliberately NOT re-hosted** — buffering ad videos (measured 6–54 MB each, ~20 per pull) in one serverless function OOM'd/500'd the whole `/library` page (brand Michelle Bennett). Images only (≤15 MB, batches of 6, wrapped so a hiccup can't 500). Video permanence is deferred (needs a background job). Each Meta card has a **"View on Meta ↗"** link (`?id=<platform_native_id>`, the archive id — verified `id === 'm'+platform_native_id`); a dead page = the ad went inactive. **Re-check statuses** (rail) re-pulls status/dates from Atria — a *soft* signal (Atria lags Meta; no Meta API). |
+| Library — permanence & Meta link | Winner **images** are re-hosted into the `library` bucket (`rehostImage`) so a saved winner survives Meta takedown + Atria CDN expiry; the grid prefers the stored copy, fall back to the CDN. **Videos are deliberately NOT re-hosted** — buffering ad videos (measured 6–54 MB each, ~20 per pull) in one serverless function OOM'd/500'd the whole `/library` page (brand Michelle Bennett). Images only (≤15 MB, batches of 6, wrapped so a hiccup can't 500). Video permanence is deferred (needs a background job). Each Meta card has a **"View on Meta ↗"** link (`?id=<platform_native_id>`, the archive id — verified `id === 'm'+platform_native_id`); a dead page = the ad went inactive. **Re-check statuses** (rail) re-pulls status/dates from Atria — a *soft* signal (Atria lags Meta; no Meta API). |
 | Library — filter / sort / delete | **Filters** + **Sort** popovers (SSR via `<details>`, top-right): Platform (`platforms[]`), Media type (`kind`), Active status, **Run-date range** — the honest stand-in for Meta's "impressions by date". **Sort** by **Winner Score** (replaces the impossible "impressions high→low") or Most recent. No Language filter — Atria sends no language field (verified). Advertiser **sub-filter** under "From Meta". **Batch delete**: a client `LibraryGrid` hosts a Select mode (pick cards → `deleteItems`), plus a per-advertiser **"delete all"** ✕ in the rail (`deleteByBrand`, scoped to `source='meta'`, whole-brand not just the 60 shown). All deletes cascade decon/rebuild rows and remove bucket objects. |
 | Build-in-Library (3a+3b) | **Added 2026-07-22.** `LibraryDesk` hosts the grid *and* the build panel: click an ad → pick a grounded brand → `makeConcept` (`library/concept-actions.ts`) writes the replication. Batch-delete select mode still lives in the same component; picking-to-build and picking-to-delete are separate modes so they can't collide. Grounding gates unchanged. |
-| Generation speed | **The user's explicit trade (2026-07-22): "I don't care if quality suffers, make it fast."** Measured 178s → **51.6s** on the same source ad, same pinned model. Three levers: `effort: 'low'`; **no fresh deconstruction** in the build path (a replication works from the source's own copy — the vision read cost ~30s before Claude wrote a word; an *existing* one is still passed through free); **no image inline** (`shootImage` runs from the client after the copy renders). Further speed means a smaller model — not done, since `claude-opus-4-8` is pinned and that's a bigger call than an effort setting. |
+| Generation speed | **The user's explicit trade: "I don't care if quality suffers, make it fast."** Measured **178s → 51.6s → 48.8s**, same source ad, same pinned model. Levers, in order of payoff: `effort: 'low'`; **no deconstruction** (~30s, now deleted outright); **no image inline** (`shootImage` runs from the client after the copy renders); and **fewer output fields** — alternates and the replication map were cut 2026-07-23, which is UI noise *and* tokens. Further speed means a smaller model — not done, since `claude-opus-4-8` is pinned and that is a bigger call than an effort setting. |
+| Output shape | One headline, body copy, CTA, art direction, one-line note. **No alternate headlines and no "what was replicated" map** — both cut 2026-07-23 as distraction. Don't add fields back for completeness: every field is output tokens, and output tokens are wall-clock. |
 | Fast mode | **Unavailable on this workspace.** Verified live 2026-07-22: `speed: 'fast'` 429s with *"rate limit of 0 fast mode input tokens per minute"*. It would be the ideal lever (same model, up to 2.5x output tok/s) so the code path is kept behind **`CLAUDE_FAST_MODE=1`**, off by default — left on, it cost a wasted round-trip before every generation. Turn it on only if that capacity is actually bought. |
 | Structured output | **`messages.parse` is not used — the rebuild streams.** `parse` is non-streaming, so it capped at 16,000 tokens and a long source blew through it mid-JSON; the user saw *"Unterminated string in JSON at position 3628"*, which reads like a parser bug and is actually a token limit. Now `messages.stream(...).finalMessage()` at 32,000, with the JSON parsed and Zod-validated by hand and a truncation-specific error message. Don't revert to `parse` for convenience. |
 | Copy fidelity | **Changed 2026-07-22** (`lib/rebuild.ts`). The prompt used to say "borrow structure, never substance," which produced a *fresh* ad in the same spirit — the user tested it and said it came out "completely different." It now replicates the source beat by beat: same lead, same paragraph count and order, same length and rhythm, same turn, same closer, with only the substance swapped. **The claim rule did not move** — claims still come only from our research, because copying a competitor's ingredient claim onto our product is a compliance problem, not a style choice. A new `mirror` field returns a "theirs → ours" map so a buyer can check the replication at a glance; it has no column, so it rides in `rebuilds.notes` (no migration needed). Verified live: the rebuild mirrored the source liver ad's confessional structure beat for beat (dismissed warnings, second family member, wrong-product-then-right turn, twin P.S.) with our magnesium mechanism and no invented numbers. |
 | Run-length chips | **Added 2026-07-22.** `7d+ / 14d+ / 30d+ / 60d+` on `/library` (`?days=`), filtering on `run_days` — the Ad Library's date chips, on the one signal we have. Sort relabelled **"Longest running"**. Still no impressions filter and never will be (hard constraint 1): Meta publishes impressions for political/issue ads only, so the Ad Library page being copied from doesn't show them for ecom either. |
-| Deconstruct (3a) | End-to-end on a real ad: Gemini located 8 elements, Claude marked 5, ~30s. `npm run verify:deconstruct [adId]`. |
-| Rebuild (3b) | Proven end-to-end on real NAC600 docs (see Known open). Editorial 3-column screen: source + deconstruction, our generated creative, editable headline/alternates/copy/CTA. Grounding gated three ways (action, `lib/rebuild.ts`, DB check). Pinned models: `claude-opus-4-8`, image `gemini-2.5-flash-image` — **NOT** the `gemini-3-pro-image`/`imagen-4.0-*` CLAUDE.md once named; those 503/404'd on 2026-07-16. `npm run verify:rebuild`. |
+| Rebuild (3b) | Proven end-to-end on real NAC600 docs (see Known open). `/rebuild/[adId]` is the **edit** view for a saved draft: source ad, our generated creative, editable headline/copy/CTA. Grounding gated three ways (action, `lib/rebuild.ts`, DB check). Pinned models: `claude-opus-4-8`, image `gemini-2.5-flash-image` — **NOT** the `gemini-3-pro-image`/`imagen-4.0-*` CLAUDE.md once named; those 503/404'd on 2026-07-16. `npm run verify:rebuild`. |
 | Brand | Doc upload → `brand-docs` bucket → text extracted (PDF via Gemini, DOCX via `mammoth`, txt/md direct) → `brand_docs` rows, versioned per kind. Unreadable files are rejected, not stored. |
 | Review (3c) | Table queue with Waiting/Mine/All filter (**defaults to All** on landing; `?show=waiting\|mine` override); per-rebuild state machine draft→waiting→{approved,changes_asked}→waiting, writing `review_events`. Concurrency-guarded transitions. The rebuild detail (`/rebuild/[adId]`, where the queue links) shows the source ad's "As it ran" headline/body/CTA so a reviewer sees what was borrowed. |
 | Settings / auth | Invite by email, resend, remove, self-service password, sign out. See § Auth. In-app pieces wired and clean. **Emailed invite/reset links require the `token_hash` email templates** (§ Auth dependency) — with the default `{{ .ConfirmationURL }}` templates the invitee lands on `/signin?error=link` (PKCE code / implicit fragment the server can't exchange). `/auth/confirm` now logs the exact failure (`[auth/confirm] …`) to the function logs. |
@@ -288,12 +296,11 @@ production at **https://teardown-kohl.vercel.app**.
 - **1GB uploads work in prod** because they go browser→Storage directly, never
   through a Vercel function body.
 - **`maxDuration` must be set on every route that hosts a model call.** Measured
-  2026-07-22 on the real NAC/liver source ad (~2,000 words): Gemini vision +
-  Claude's structural read ~30s, then **Claude's copy pass 178s**, then Gemini's
-  image ~9–20s. `/rebuild/[adId]` had *no* `maxDuration` at all and would 504
+  2026-07-22 on the real NAC/liver source ad (~2,000 words): **Claude's copy pass
+  178s** (now ~49s after the speed work), then Gemini's image ~7–20s. `/rebuild/[adId]` had *no* `maxDuration` at all and would 504
   mid-rebuild on long copy in prod. Now `300` on `/library` and `/rebuild/[adId]`,
-  `120` on `/deconstruct/[adId]` (300 is the ceiling Vercel allows on every
-  plan). `/library` needs it too — it hosts the build action now. Speed work has
+  (300 is the ceiling Vercel allows on every plan). `/library` needs it — it
+  hosts the build action. Speed work has
   since brought the copy pass to ~52s, but keep the headroom: it is the ceiling
   that matters, not the average.
 
@@ -303,7 +310,7 @@ The Library stopped being the Atria tracked-brand feed and became a **curated
 swipe file the buyer stocks** (user decision, after hitting the feed's limits:
 Atria staleness, Meta's unverifiable per-clone impressions, no curation). The
 `ads` table is reused as the universal item store — an upload, a Meta paste, and
-a legacy Atria row are all `ads` rows — so Deconstruct→Rebuild, which key off
+a legacy Atria row are all `ads` rows — so the build path, which keys off
 `ads_scored.atria_ad_id` / `ads.id`, kept working. New rows carry a synthetic
 `atria_ad_id` (`up_<uuid>` for uploads, `m<library_id>` for Meta pastes).
 
@@ -320,18 +327,11 @@ Non-obvious things worth keeping:
 - **A Meta row's `source_url` is the Facebook page URL, never the creative.** Art
   comes from `videos[]`/`images[]` (Atria CDN); `source_url` is art only for a
   direct-link upload reference. Getting this order wrong shows broken previews.
-- Video is stored/playable but **deconstruction is image-only** (Gemini vision
-  needs a still); the button is hidden for video with a note. Meta **video**
-  winners are also **not re-hosted** — their thumbnail streams from Atria's CDN
-  (see the "permanence" build-state row for why server-side video buffering was
-  the `/library` 500). Only images get the permanent copy.
-
-**The Gemini/Claude split is load-bearing, not stylistic.** Gemini reports only
-*what is on the creative and where*; Claude gets that list plus the ad copy and
-says *why it works*. Claude never sees the image, so it cannot invent a
-coordinate — it references an element by index and `lib/deconstruct.ts` merges
-the position back in. Collapsing this into one vision call would let the model
-hallucinate marks onto empty pixels. Keep the split.
+- Video is stored/playable, and since Deconstruct is gone a video ad builds
+  exactly like an image one (the copy comes from the ad's text, not its frames).
+  Meta **video** winners are still **not re-hosted** — their thumbnail streams
+  from Atria's CDN (see the "permanence" build-state row for why server-side
+  video buffering was the `/library` 500). Only images get the permanent copy.
 
 ## Next
 
@@ -353,12 +353,11 @@ build-state table. Remaining, roughly in order:
    `ads.winner_score` and recreates `ads_scored` again (applied 2026-07-18). There
    is no linked project / `DATABASE_URL`, so any *future* migration is pasted into
    the SQL editor by hand — confirm it's applied before relying on new columns.
-3. **Video deconstruction** — currently image-only. Options: a poster-frame
-   extract, or Atria's transcript endpoint
-   (`/open/v1/ad-accounts/{acct}/ads/{id}/transcript`) to feed Claude the spoken hook.
-   Related: **video permanence** — meta video winners aren't re-hosted (see the
+3. **Video permanence** — meta video winners aren't re-hosted (see the
    permanence build-state row); a background job (or browser→Storage) could copy
-   them into the `library` bucket without OOMing a serverless function.
+   them into the `library` bucket without OOMing a serverless function. (Video
+   *deconstruction* is no longer an open item — Deconstruct is deleted, and a
+   video ad now builds from its text like any other.)
 4. **~~Bulk Meta page-URL ingest~~ — DONE 2026-07-18.** `addByUrl` now handles
    both single-ad `?id=` URLs and advertiser `?view_all_page_id=` pages (the
    latter scans and pulls winners only). See the build-state table. Still open:
@@ -380,9 +379,6 @@ build-state table. Remaining, roughly in order:
 - Review staleness display is **done**: the queue table and the rebuild detail's
   "Grounded in" flag a doc only when a newer version of that brand+kind exists,
   and stay quiet when current. (Replaces the old unreadable `v4 · v2 · v3` stamps.)
-- Mark placement accuracy is Gemini's, and is unmeasured. Spot-checks landed on
-  target; if a mark drifts, that is the vision prompt in `lib/vision.ts`, not the
-  rendering.
 - The mockup hovers the back link to `--pencil`. That contradicts "pencil is
   ANNOTATION ONLY, never chrome", so the build darkens to `--ink` instead. Noted
   in `globals.css` — flip it if the mockup wins. The same rule is why the new

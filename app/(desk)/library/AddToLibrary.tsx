@@ -126,7 +126,7 @@ export function AddToLibrary() {
       )}
       {uploadErr && <p className="gate-error" style={{ marginTop: 8 }}>{uploadErr}</p>}
 
-      <p className="add-hint">Up to 1 GB each. Video is stored and playable; deconstruction is image-only for now.</p>
+      <p className="add-hint">Up to 1 GB each. Video is stored and playable.</p>
 
       <form action={urlAction} className="add-url">
         <input

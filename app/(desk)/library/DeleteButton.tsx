@@ -4,7 +4,7 @@ import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { deleteItem } from './actions';
 
-// A small ✕ on each card. Deletion cascades the item's deconstruction and any
+// A small ✕ on each card. Deletion cascades any
 // rebuilds, so it asks once before doing it. Lives OUTSIDE the card's <Link> so
 // it isn't a button nested in an anchor.
 export function DeleteButton({ adId, label }: { adId: string; label: string }) {

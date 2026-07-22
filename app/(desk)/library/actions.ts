@@ -15,7 +15,7 @@ import {
 // The Library is now a curated swipe file. Two intake paths land here — a
 // browser-direct file upload (saveUpload, the row half of a resumable upload)
 // and a pasted URL (addByUrl). Both write `ads` rows so the existing
-// Deconstruct → Rebuild workflow, which keys off this table, treats them like
+// build flow, which keys off this table, treats them like
 // any other ad.
 
 export type AddState = {
@@ -89,7 +89,7 @@ export async function saveUpload(input: {
 }
 
 /**
- * Remove a library item. The `ads` row goes; `deconstructions` and `rebuilds`
+ * Remove a library item. The `ads` row goes; `rebuilds`
  * cascade with it (both FK `on delete cascade`). For an uploaded file we also
  * drop the object from the bucket so it isn't orphaned. RLS (`ads_rw` =
  * is_member()) is the real gate — a non-member's delete affects zero rows.
@@ -334,7 +334,7 @@ async function addPageWinners(
  * buffering ad videos (measured 6–54 MB each, ~20 per pull) into memory in one
  * request OOMs/times the function out and 500s the whole page. Video permanence
  * would need a background job or the browser→Storage path; until then a meta
- * video's thumbnail is served from Atria's CDN (deconstruction is image-only
+ * video's thumbnail is served from Atria's CDN (nothing else needs the
  * anyway). A byte cap guards against a pathologically large "image" too.
  */
 async function rehostImage(

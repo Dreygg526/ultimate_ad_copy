@@ -13,13 +13,10 @@ import { RebuildButton } from './RebuildButton';
 import { RebuildEditor } from './RebuildEditor';
 import { ReviewControls } from '@/app/(desk)/review/ReviewControls';
 
-// Step 3b, the editorial layout: the source ad and its deconstruction on the
-// left, our generated creative in the middle, our copy on the right — editable
-// while it is the author's to change, read-only once a reviewer has it.
-//
-// The three columns are the judgement a buyer makes in order: what was the ad
-// doing (left), what did we shoot (middle), does the copy borrow the structure
-// and replace the substance (right).
+// The editing view for a saved draft, reached from the concept a buyer just
+// built in the Library. Source ad on the left, our creative in the middle, our
+// copy on the right — editable while it is the author's to change, read-only
+// once a reviewer has it.
 
 interface ReviewEvent {
   id: string;
@@ -29,15 +26,9 @@ interface ReviewEvent {
   created_at: string;
 }
 
-interface Mark {
-  heading: string;
-  body: string;
-}
-
 interface Rebuild {
   id: string;
   headline: string | null;
-  alternates: string[] | null;
   copy: string | null;
   cta: string | null;
   notes: string | null;
@@ -93,22 +84,10 @@ export default async function RebuildAdPage({
     grounded: groundedIds.has(b.id),
   }));
 
-  const { data: decon } = await db
-    .from('deconstructions')
-    .select('summary, marks')
-    .eq('ad_id', ad.id)
-    .order('created_at', { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  const marks = ((decon?.marks ?? []) as Mark[]).map((m) => ({
-    heading: m.heading,
-    body: m.body,
-  }));
-
   const { data: rebuildRows } = await db
     .from('rebuilds')
     .select(
-      'id, headline, alternates, copy, cta, notes, art_direction, image_path, status, grounding_doc_ids, created_at, brand_id',
+      'id, headline, copy, cta, notes, art_direction, image_path, status, grounding_doc_ids, created_at, brand_id',
     )
     .eq('ad_id', ad.id)
     .order('created_at', { ascending: false });
@@ -178,8 +157,8 @@ export default async function RebuildAdPage({
   return (
     <>
       <div className="proofbar">
-        <Link href="/rebuild" className="backlink">
-          ← Rebuild
+        <Link href="/library" className="backlink">
+          ← Library
         </Link>
         <span className="proofbar-title">{ad.brand_name ?? (ad.source === 'upload' ? 'Upload' : 'Meta ad')}</span>
         {ad.status && (
@@ -307,32 +286,6 @@ export default async function RebuildAdPage({
               </div>
             )}
 
-            {decon?.summary && (
-              <div className="notes-sec">
-                <p className="eyebrow">Structure</p>
-                <div style={{ marginTop: 8 }}>
-                  <Clamp text={decon.summary} lines={6} />
-                </div>
-              </div>
-            )}
-
-            {marks.length > 0 && (
-              <div className="notes-sec">
-                <p className="eyebrow">The moves we marked</p>
-                {marks.map((m, i) => (
-                  <div key={i} className="ed-move">
-                    <span className="ed-move-n">{String(i + 1).padStart(2, '0')}</span>
-                    <div>
-                      <p className="note-h" style={{ fontSize: 11 }}>
-                        {m.heading}
-                      </p>
-                      <p className="note-b">{m.body}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-
             <div className="notes-sec">
               <p className="eyebrow">Grounded in</p>
               {groundingDocs.map((d) => (
@@ -400,7 +353,6 @@ export default async function RebuildAdPage({
                 status={latest.status as 'draft' | 'changes_asked'}
                 initial={{
                   headline: latest.headline ?? '',
-                  alternates: latest.alternates ?? [],
                   copy: latest.copy ?? '',
                   cta: latest.cta ?? '',
                   notes: latest.notes,

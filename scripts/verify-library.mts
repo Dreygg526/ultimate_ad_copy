@@ -3,7 +3,7 @@
  *   1. Meta-URL ingest — resolve an ad via getLibraryAd and store it as a `meta`
  *      row (mirrors addByUrl), then read it back through ads_scored.
  *   2. Upload path — put a real image in the private `library` bucket, sign it,
- *      and run the ACTUAL deconstruction (Gemini + Claude) on the signed URL,
+ *      and confirm the signed URL is fetchable,
  *      proving an uploaded image flows through the whole workflow. Cleaned up.
  *
  *   npx tsx --conditions=react-server scripts/verify-library.mts
@@ -11,7 +11,6 @@
 import { readFileSync } from 'node:fs';
 import { createClient } from '@supabase/supabase-js';
 import { getLibraryAd, parseAtriaDate } from '../lib/atria';
-import { deconstructAd, type AdForDeconstruction } from '../lib/deconstruct';
 
 for (const line of readFileSync('.env.local', 'utf8').split('\n')) {
   const m = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*)\s*$/);
@@ -93,21 +92,8 @@ const { data: signed } = await db.storage.from('library').createSignedUrl(path, 
 console.log(`uploaded ${(bytes.byteLength / 1024).toFixed(0)} KB → ${path}`);
 console.log('signed URL fetchable:', signed?.signedUrl ? 'YES' : 'NO');
 
-const t0 = Date.now();
-const r = await deconstructAd({
-  brand_name: 'verify upload',
-  title: null,
-  body: null,
-  caption: null,
-  cta_text: null,
-  status: null,
-  run_days: null,
-  images: [{ url: signed!.signedUrl }],
-} as AdForDeconstruction);
-const secs = ((Date.now() - t0) / 1000).toFixed(1);
-
-console.log(`Gemini located ${r.vision.observations.length} elements; Claude placed ${r.marks.length} marks in ${secs}s`);
-for (const [i, m] of r.marks.entries()) console.log(`  ${i + 1}. (${m.x.toFixed(0)}%,${m.y.toFixed(0)}%) ${m.heading}`);
+const probe = await fetch(signed!.signedUrl);
+console.log('signed URL returns:', probe.status, probe.headers.get('content-type'));
 
 // cleanup the throwaway upload (keep the meta row as a real Library demo item)
 await db.from('ads').delete().eq('atria_ad_id', upId);

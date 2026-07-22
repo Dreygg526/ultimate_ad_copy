@@ -5,7 +5,13 @@ import { zodOutputFormat } from '@anthropic-ai/sdk/helpers/zod';
 import * as z from 'zod';
 
 /**
- * Step 3b: Claude writes headline + copy, Gemini generates the image.
+ * The build: Claude writes the headline + copy, Gemini shoots the image.
+ *
+ * One headline, no alternates, and no "what was replicated" map — both were cut
+ * on 2026-07-23 as noise a buyer scrolls past, and cutting them also cut output
+ * tokens, which is wall-clock. There is no deconstruction input either: the
+ * replication is written from the source ad's own copy, which is the thing being
+ * replicated.
  *
  * The whole point of this screen is grounding. Atria's own Raya agent already
  * does competitor analysis and image generation — what it cannot do is know our
@@ -19,9 +25,8 @@ import * as z from 'zod';
 
 const MODEL = 'claude-opus-4-8';
 
-// Image generation, not vision — a different model from lib/vision.ts. Pinned
-// for the same reason: an alias would change the output with nothing in the
-// repo changing.
+// Image generation. Pinned, never aliased: an alias would change the output
+// with nothing in the repo changing.
 //
 // NOT gemini-3-pro-image, which is what CLAUDE.md names. Checked against the
 // live API on 2026-07-16: gemini-3-pro-image returns 503 "experiencing high
@@ -37,13 +42,6 @@ const RebuildSchema = z.object({
     .string()
     .describe(
       "The headline as it would run. One line. Mirror the source headline's shape, length and rhythm as closely as you can — it must carry OUR mechanism, not the source ad's.",
-    ),
-  alternates: z
-    .array(z.string())
-    .min(2)
-    .max(3)
-    .describe(
-      'Two or three alternate headlines, each a genuinely different angle on the same ad — not rewordings of the first. A buyer will pick one.',
     ),
   copy: z
     .string()
@@ -64,15 +62,6 @@ const RebuildSchema = z.object({
     .string()
     .describe(
       'One or two sentences naming the structural move taken from the source ad and what substance replaced it, so a buyer can see what was replicated and what was ours.',
-    ),
-  // The buyer's proof that the rebuild actually mirrors the source rather than
-  // being a fresh ad. Without this you have to read both in full to tell.
-  mirror: z
-    .array(z.string())
-    .min(3)
-    .max(8)
-    .describe(
-      'Paragraph-by-paragraph map, in order, one line each, formatted "theirs → ours": a short quote or description of the source beat, then what you wrote in its place. This is how a buyer checks the replication at a glance.',
     ),
 });
 
@@ -96,9 +85,6 @@ export interface SourceAd {
 
 export interface RebuildInput {
   ad: SourceAd;
-  /** The deconstruction, if it has been run — what the ad is doing and why. */
-  summary: string | null;
-  marks: { heading: string; body: string }[];
   brandName: string;
   docs: GroundingDoc[];
 }
@@ -141,7 +127,7 @@ Your readers are expert buyers. Write the ad, not a description of the ad. No
 preamble, no hedging, no explaining your choices except where asked.`;
 
 function buildPrompt(input: RebuildInput): string {
-  const { ad, summary, marks, brandName, docs } = input;
+  const { ad, brandName, docs } = input;
   const byKind = (k: GroundingDoc['kind']) => docs.filter((d) => d.kind === k);
 
   const section = (label: string, kind: GroundingDoc['kind']) => {
@@ -164,11 +150,6 @@ function buildPrompt(input: RebuildInput): string {
     }. Run length is the only performance signal we have — there is no impressions`,
     'or spend data. Do not treat it as reach.',
     '',
-    summary ? `WHY IT WORKS (from our deconstruction)\n${summary}` : 'It has not been deconstructed yet.',
-    ...(marks.length
-      ? ['', 'THE MOVES WE MARKED:', ...marks.map((m) => `  - ${m.heading}: ${m.body}`)]
-      : []),
-    '',
     '='.repeat(60),
     `NOW REBUILD IT FOR: ${brandName}`,
     'Everything below is our own research. It is the only source of truth for any',
@@ -181,8 +162,7 @@ function buildPrompt(input: RebuildInput): string {
     '',
     `Write the rebuild for ${brandName}. Go through the source ad above beat by beat`,
     'and write our version of each beat in the same position, at the same length, in',
-    'the same rhythm. Every claim comes from the research above. Then fill in the',
-    'mirror field so a buyer can check the replication line by line.',
+    'the same rhythm. Every claim comes from the research above.',
   ].join('\n');
 }
 

@@ -6,11 +6,9 @@ import { signOut } from '@/app/auth/actions';
 
 // Client only because the active-tab state reads the pathname.
 //
-// Deconstruct and Rebuild are deliberately NOT tabs. They are still routes —
-// /deconstruct/[adId] for the marks, /rebuild/[adId] for editing a saved draft —
-// but a buyer reaches them from the ad they're looking at, not by walking the
-// steps in order. Putting them back in the nav rebuilds the four-screen errand
-// the user rejected.
+// Rebuild is deliberately NOT a tab: /rebuild/[adId] exists only for editing a
+// saved draft, reached from the concept a buyer just made. Adding tabs per step
+// rebuilds the four-screen errand the user rejected.
 const SCREENS = [
   { href: '/library', label: 'Library' },
   { href: '/review', label: 'Review' },

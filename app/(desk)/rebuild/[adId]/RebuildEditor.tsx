@@ -25,7 +25,7 @@ export function RebuildEditor({
   adId: string;
   rebuildId: string;
   status: Status;
-  initial: { headline: string; alternates: string[]; copy: string; cta: string; notes: string | null };
+  initial: { headline: string; copy: string; cta: string; notes: string | null };
 }) {
   const [headline, setHeadline] = useState(initial.headline);
   const [copy, setCopy] = useState(initial.copy);
@@ -83,24 +83,6 @@ export function RebuildEditor({
           onChange={(e) => setHeadline(e.target.value)}
         />
       </div>
-
-      {initial.alternates.length > 0 && (
-        <div className="field-block">
-          <p className="eyebrow">Alternates</p>
-          {initial.alternates.map((alt, i) => (
-            <button
-              key={i}
-              type="button"
-              className="alt-line"
-              onClick={() => setHeadline(alt)}
-              title="Use this headline"
-            >
-              <span className="alt-n">{String(i + 2).padStart(2, '0')}</span>
-              <span>{alt}</span>
-            </button>
-          ))}
-        </div>
-      )}
 
       <div className="field-block">
         <p className="eyebrow">Body copy</p>

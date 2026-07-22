@@ -27,7 +27,7 @@ const plexMono = IBM_Plex_Mono({
 
 export const metadata: Metadata = {
   title: 'Teardown',
-  description: 'Find winning native ads, deconstruct why they work, rebuild them on our brand.',
+  description: 'Find winning native ads and rebuild them on our brand.',
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
