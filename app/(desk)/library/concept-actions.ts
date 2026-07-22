@@ -2,24 +2,27 @@
 
 import { revalidatePath } from 'next/cache';
 import { createClient } from '@/lib/supabase/server';
-import { deconstructAd, type AdForDeconstruction } from '@/lib/deconstruct';
 import { generateRebuild, generateImage, type GroundingDoc } from '@/lib/rebuild';
 
 /**
- * Steps 3a + 3b, collapsed into one call.
+ * Click an ad in the Library, get a concept. One call, optimised for wall-clock.
  *
- * The Deconstruct and Rebuild screens still exist for reading a concept in
- * detail, but they are no longer the path a buyer walks: one button here runs
- * the vision read, the structural read and the copy, and writes both rows. The
- * two-screen version made a single concept a four-page, two-wait errand.
+ * Three things are deliberately NOT in this path, all to cut time to first copy:
  *
- * The image is deliberately NOT generated here. Gemini's shoot is the slowest
- * part (~20s) and the least useful half — a buyer judges the concept on the
- * words. It runs from shootImage() once the copy is already on screen.
+ *  1. No fresh deconstruction. A replication is written from the source ad's own
+ *     headline, body and CTA — the vision read's marks were never load-bearing
+ *     for it, and running it cost ~30s before Claude saw a word. An EXISTING
+ *     deconstruction is still passed through (it's free), and the Deconstruct
+ *     screen still produces one on demand.
+ *  2. No image. Gemini's shoot is the slowest part and the least useful half —
+ *     a buyer judges the concept on the words. shootImage() runs from the
+ *     client once the copy is already on screen.
+ *  3. No high effort. See lib/rebuild.ts — the user chose speed over polish
+ *     explicitly.
  *
  * The grounding rule is unchanged (CLAUDE.md hard constraint 3): no docs, no
  * rebuild — lib/rebuild.ts refuses and the DB's rebuild_must_be_grounded check
- * refuses behind it.
+ * refuses behind it. That one is not a speed trade.
  */
 
 export type ConceptState = {
@@ -75,8 +78,8 @@ export async function makeConcept(
     .maybeSingle();
   if (!ad) return { error: 'That ad is not in the library.' };
 
-  // The brand and its research don't depend on the ad read, so fetch them while
-  // Gemini is still looking at the creative. This is most of the time saved.
+  // The brand, its research and any prior deconstruction are independent reads —
+  // run them together so nothing waits on anything but Claude.
   const brandWork = (async () => {
     const [{ data: brand }, { data: docRows }] = await Promise.all([
       db.from('brands').select('id, name').eq('id', brandId).maybeSingle(),
@@ -89,75 +92,31 @@ export async function makeConcept(
     return { brand, docs: latestPerKind((docRows ?? []) as { kind: string }[]) };
   })();
 
-  // Deconstruction is image-only (Gemini vision needs a still) and is the
-  // softer half here: a video winner still gets copy, it just gets it without
-  // the marks. Reuse an existing read rather than paying for it twice.
-  const deconWork = (async () => {
-    const { data: existing } = await db
-      .from('deconstructions')
-      .select('summary, marks')
-      .eq('ad_id', ad.id)
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    if (existing) return { decon: existing, fresh: false as const, note: null };
+  // Only an EXISTING deconstruction — one cheap read, never a fresh vision pass.
+  // Running one here cost ~30s before Claude started writing, and a replication
+  // works from the source's own copy. Use the Deconstruct screen when the marks
+  // are actually wanted.
+  const deconWork = db
+    .from('deconstructions')
+    .select('summary, marks')
+    .eq('ad_id', ad.id)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
 
-    if (ad.kind === 'video') {
-      return { decon: null, fresh: false as const, note: 'Video source — no marks; deconstruction is image-only.' };
-    }
-
-    // Uploaded images live in the private bucket — hand Gemini a signed URL.
-    let images = ad.images as { url: string }[] | null;
-    if (ad.source === 'upload') {
-      if (ad.storage_path) {
-        const { data: signed } = await db.storage
-          .from('library')
-          .createSignedUrl(ad.storage_path, 3600);
-        images = signed?.signedUrl ? [{ url: signed.signedUrl }] : null;
-      } else if (ad.source_url) {
-        images = [{ url: ad.source_url }];
-      }
-    }
-
-    try {
-      const result = await deconstructAd({ ...(ad as AdForDeconstruction), images });
-      return { decon: result, fresh: true as const, note: null };
-    } catch (e) {
-      // A failed read costs the marks, not the concept — keep going.
-      return {
-        decon: null,
-        fresh: false as const,
-        note: `Copy written without a deconstruction: ${
-          e instanceof Error ? e.message : 'vision failed'
-        }`,
-      };
-    }
-  })();
-
-  const [{ brand, docs }, deconOut] = await Promise.all([brandWork, deconWork]);
+  const [{ brand, docs }, { data: decon }] = await Promise.all([brandWork, deconWork]);
   if (!brand) return { error: 'That brand is gone.' };
 
-  // Persist a fresh read so the Deconstruct screen and any later rebuild see it.
-  if (deconOut.fresh && deconOut.decon) {
-    const r = deconOut.decon as Awaited<ReturnType<typeof deconstructAd>>;
-    await db.from('deconstructions').insert({
-      ad_id: ad.id,
-      summary: r.summary,
-      marks: r.marks,
-      model: r.model,
-      created_by: user.id,
-    });
-  }
-
-  const marks = ((deconOut.decon?.marks ?? []) as { heading: string; body: string }[]).map(
-    (m) => ({ heading: m.heading, body: m.body }),
-  );
+  const marks = ((decon?.marks ?? []) as { heading: string; body: string }[]).map((m) => ({
+    heading: m.heading,
+    body: m.body,
+  }));
 
   let draft;
   try {
     draft = await generateRebuild({
       ad,
-      summary: deconOut.decon?.summary ?? null,
+      summary: decon?.summary ?? null,
       marks,
       brandName: brand.name,
       docs,
@@ -202,7 +161,6 @@ export async function makeConcept(
 
   return {
     error: null,
-    note: deconOut.note,
     rebuildId: saved?.id,
     adId,
     headline: draft.headline,
@@ -212,7 +170,7 @@ export async function makeConcept(
     notes: draft.notes,
     mirror: draft.mirror,
     marks,
-    summary: deconOut.decon?.summary ?? null,
+    summary: decon?.summary ?? null,
   };
 }
 

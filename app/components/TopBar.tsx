@@ -5,11 +5,14 @@ import { usePathname } from 'next/navigation';
 import { signOut } from '@/app/auth/actions';
 
 // Client only because the active-tab state reads the pathname.
+//
+// Deconstruct and Rebuild are deliberately NOT tabs. They are still routes —
+// /deconstruct/[adId] for the marks, /rebuild/[adId] for editing a saved draft —
+// but a buyer reaches them from the ad they're looking at, not by walking the
+// steps in order. Putting them back in the nav rebuilds the four-screen errand
+// the user rejected.
 const SCREENS = [
-  { href: '/make', label: 'Make' },
   { href: '/library', label: 'Library' },
-  { href: '/deconstruct', label: 'Deconstruct' },
-  { href: '/rebuild', label: 'Rebuild' },
   { href: '/review', label: 'Review' },
   { href: '/brand', label: 'Brand' },
   { href: '/settings', label: 'Settings' },

@@ -3,12 +3,13 @@ import { createClient } from '@/lib/supabase/server';
 import { AddToLibrary } from './AddToLibrary';
 import { RefreshStatuses } from './RefreshStatuses';
 import { BrandDeleteButton } from './BrandDeleteButton';
-import { LibraryGrid, type CardItem } from './LibraryGrid';
+import { LibraryDesk, type BrandOption, type CardItem } from './LibraryDesk';
 
-// Headroom for the page-URL winner pull (Atria calls + image re-hosts) and the
-// status re-check, which run as server actions on this route. Well under it in
-// practice; this just stops a slow CDN from tripping the platform default.
-export const maxDuration = 60;
+// This route now hosts the page-URL winner pull, the status re-check AND the
+// concept build (Claude writes a full-length replication). The copy pass is the
+// long one, so use the same 300s ceiling as the other model routes — 60 would
+// cut a long source off mid-generation.
+export const maxDuration = 300;
 
 // Step 1, rebuilt: the Library is a curated swipe file the buyer stocks — files
 // uploaded straight to Storage, and ads pulled from a Meta Ad Library URL. Both
@@ -179,6 +180,23 @@ export default async function LibraryPage({
     return count ?? 0;
   };
   const [uploadN, metaN] = await Promise.all([countSource('upload'), countSource('meta')]);
+
+  // Our brands, flagged by whether they carry readable research. A brand without
+  // it can't ground a rebuild (hard constraint 3), so it isn't offered.
+  const [{ data: ourBrands }, { data: brandDocRows }] = await Promise.all([
+    db.from('brands').select('id, name').eq('is_tracked', false).order('name'),
+    db.from('brand_docs').select('brand_id, extracted_text'),
+  ]);
+  const groundedIds = new Set(
+    ((brandDocRows ?? []) as { brand_id: string; extracted_text: string | null }[])
+      .filter((d) => (d.extracted_text ?? '').trim())
+      .map((d) => d.brand_id),
+  );
+  const brands: BrandOption[] = (ourBrands ?? []).map((b) => ({
+    id: b.id,
+    name: b.name,
+    grounded: groundedIds.has(b.id),
+  }));
 
   // Advertisers behind the Meta items, for the "From Meta" sub-list. A curated
   // library is small, so pull the id/name pairs and tally in JS rather than an
@@ -432,7 +450,7 @@ export default async function LibraryPage({
           </p>
         )}
 
-        <LibraryGrid items={cardItems} />
+        <LibraryDesk items={cardItems} brands={brands} />
       </main>
     </div>
   );

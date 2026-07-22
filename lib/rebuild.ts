@@ -195,6 +195,12 @@ function usableDocs(docs: GroundingDoc[]): GroundingDoc[] {
   return docs.filter((d) => (d.extracted_text ?? '').trim().length > 0);
 }
 
+/** The structured output arrives as a text block; thinking blocks sit alongside it. */
+function textOf(content: { type: string }[]): string | null {
+  const block = content.find((b): b is { type: 'text'; text: string } => b.type === 'text');
+  return block?.text ?? null;
+}
+
 export async function generateRebuild(input: RebuildInput): Promise<RebuildResult> {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) throw new Error('ANTHROPIC_API_KEY is not set');
@@ -207,26 +213,64 @@ export async function generateRebuild(input: RebuildInput): Promise<RebuildResul
   }
 
   const client = new Anthropic({ apiKey });
-  const message = await client.messages.parse({
+  const params = {
     model: MODEL,
-    // A rebuild writes a full-length ad (the source liver ad runs ~2,000 words),
-    // and adaptive thinking is billed against this same ceiling. At 8,000 the
-    // real NAC grounding (~66k chars across three docs) made Claude think enough
-    // that the JSON copy field truncated mid-string. 16,000 is the documented
-    // non-streaming ceiling (higher needs streaming to dodge HTTP timeouts);
-    // messages.parse is non-streaming, so stay at or below it.
-    max_tokens: 16000,
-    thinking: { type: 'adaptive' },
+    // STREAMING, not messages.parse. A rebuild replicates a full-length ad (the
+    // source liver ad runs ~2,000 words) and adaptive thinking is billed against
+    // the same ceiling. messages.parse is non-streaming, so it was capped at
+    // 16,000 — and a long source blew through that mid-JSON, surfacing as
+    // "Unterminated string in JSON at position 3628" rather than as a token
+    // limit. Streaming lifts the ceiling and dodges the HTTP timeout that made
+    // 16,000 the cap in the first place.
+    max_tokens: 32000,
+    thinking: { type: 'adaptive' as const },
     system: SYSTEM,
-    messages: [{ role: 'user', content: buildPrompt({ ...input, docs }) }],
+    messages: [{ role: 'user' as const, content: buildPrompt({ ...input, docs }) }],
     output_config: {
-      effort: 'high',
+      // 'low', deliberately. The user's call, made explicitly: a concept in the
+      // buyer's hands beats a better concept they won't wait for. Most of the
+      // wall-clock here is generating a 2,000-word replication, and low effort
+      // cuts the thinking that runs before a single word of it appears.
+      effort: 'low' as const,
       format: zodOutputFormat(RebuildSchema),
     },
-  });
+  };
 
-  const parsed = message.parsed_output;
-  if (!parsed) throw new Error('Claude returned no structured output');
+  // Fast mode runs the SAME model at up to 2.5x output tokens/sec — the ideal
+  // lever here, since the bottleneck is emitting a long ad and it buys speed
+  // without trading away the copy. It is OFF by default because this workspace
+  // has no fast-mode capacity: checked live 2026-07-22, every request 429s with
+  // "rate limit of 0 fast mode input tokens per minute". Leaving it on cost a
+  // wasted round-trip before every generation. Set CLAUDE_FAST_MODE=1 if that
+  // capacity is ever bought — the fallback below keeps it safe either way.
+  let text: string | null = null;
+  if (process.env.CLAUDE_FAST_MODE === '1') {
+    try {
+      const fast = await client.beta.messages
+        .stream({ ...params, speed: 'fast', betas: ['fast-mode-2026-02-01'] })
+        .finalMessage();
+      text = textOf(fast.content);
+    } catch (e) {
+      console.warn('[rebuild] fast mode unavailable, using standard speed:', e);
+    }
+  }
+
+  if (text === null) {
+    const standard = await client.messages.stream(params).finalMessage();
+    text = textOf(standard.content);
+  }
+
+  if (!text) throw new Error('Claude returned no structured output');
+
+  let parsed: RebuildDraft;
+  try {
+    parsed = RebuildSchema.parse(JSON.parse(text));
+  } catch {
+    // Truncation lands here now instead of as a raw JSON error. Say which it is.
+    throw new Error(
+      'Claude returned copy that did not parse — most likely the source ad is long enough to exceed the output ceiling. Try a shorter source ad.',
+    );
+  }
 
   return {
     ...parsed,

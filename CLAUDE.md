@@ -17,14 +17,17 @@ From the source doc. Every screen maps to a step — keep it that way.
 | Prep: brand context | Brand | Research docs → Supabase bucket → text extracted → injected into every rebuild |
 | 1. Find ads | Library | User-curated: upload image/video (≤1GB), paste a Meta Ad Library URL (single ad **or** an advertiser page URL, which scans the page and pulls only its winners), or a direct file link. (The old Atria tracked-brand auto-sync is retired — see the pivot note in State of the build.) |
 | 2. Filter for winners | Library rail | Format, status, date window, Winner Score |
-| 3a+3b. **Make** | **Make** | **The default path.** One screen: pick a winner, one button runs deconstruct *and* rebuild, copy renders, image follows |
-| 3a. Deconstruct | Deconstruct | Gemini reads the image, Claude reads the structure (detail view) |
-| 3b. Replicate | Rebuild | Claude writes headline + copy, Gemini generates image (detail view / edit) |
+| 3a+3b. Build | **Library** | **The whole workflow.** Click an ad in the grid → build panel opens beside it → one button writes the replication; the image follows on its own |
+| 3a. Deconstruct | Deconstruct | Gemini reads the image, Claude reads the structure — on demand, from the ad you're looking at |
+| 3b. Replicate | Rebuild | Editing a saved draft, sending it for review |
 | 3c. Review | Review | draft → waiting → changes asked → approved |
 
-`/make` is where a concept gets made; `/deconstruct` and `/rebuild` are where one
-gets read and edited. Don't route new "produce a concept" work through the
-per-step screens — the four-screen, two-wait version is what the user rejected.
+**The Library is the app.** Concepts get made there and nowhere else.
+`/deconstruct/[adId]` and `/rebuild/[adId]` are still routes but are **not nav
+tabs** — they're reached from the ad in hand. Re-adding them to `TopBar`, or
+adding another "produce a concept" screen, rebuilds the four-screen errand the
+user rejected twice. There was briefly a separate `/make` screen (2026-07-22);
+it was folded into the Library the same day for exactly this reason.
 
 ## Stack
 
@@ -248,9 +251,12 @@ Last updated 2026-07-18.
 | Library — page-URL winner pull | **Added 2026-07-18** (`0006_winner_score_ingest.sql`). Paste an advertiser **page** URL (`…?view_all_page_id=<pageId>`) → `brandIdFromFacebookPageId` → `m<pageId>` → `listBrandAds({status:'active', order:'most_active'})` scans ≤200 active ads → `pickBrandWinners()` (mirrors the `ads_scored` rule in code: active + run ≥ per-brand p75, 30d fallback) → stores **only** winners, capped at 30 (a **max, not a target** — 5 winners stores 5, zero stores nothing with a message), `source='meta'`, `winner_override=true`, and a frozen `winner_score`. `order:'most_active'` is load-bearing — `newest` truncates the long-run tail and misses the actual winners. The score badge + run dates + "not reach" note are back on Meta cards. Verified live against page `1035006909703902` (Steven West): 200 scanned, 30 winners, 32d→30d / score 100→97. |
 | Library — permanence & Meta link | Winner **images** are re-hosted into the `library` bucket (`rehostImage`) so a saved winner survives Meta takedown + Atria CDN expiry; the grid/Deconstruct prefer the stored copy, fall back to the CDN. **Videos are deliberately NOT re-hosted** — buffering ad videos (measured 6–54 MB each, ~20 per pull) in one serverless function OOM'd/500'd the whole `/library` page (brand Michelle Bennett). Images only (≤15 MB, batches of 6, wrapped so a hiccup can't 500). Video permanence is deferred (needs a background job). Each Meta card has a **"View on Meta ↗"** link (`?id=<platform_native_id>`, the archive id — verified `id === 'm'+platform_native_id`); a dead page = the ad went inactive. **Re-check statuses** (rail) re-pulls status/dates from Atria — a *soft* signal (Atria lags Meta; no Meta API). |
 | Library — filter / sort / delete | **Filters** + **Sort** popovers (SSR via `<details>`, top-right): Platform (`platforms[]`), Media type (`kind`), Active status, **Run-date range** — the honest stand-in for Meta's "impressions by date". **Sort** by **Winner Score** (replaces the impossible "impressions high→low") or Most recent. No Language filter — Atria sends no language field (verified). Advertiser **sub-filter** under "From Meta". **Batch delete**: a client `LibraryGrid` hosts a Select mode (pick cards → `deleteItems`), plus a per-advertiser **"delete all"** ✕ in the rail (`deleteByBrand`, scoped to `source='meta'`, whole-brand not just the 60 shown). All deletes cascade decon/rebuild rows and remove bucket objects. |
-| **Make (3a+3b in one)** | **Added 2026-07-22.** `/make` — pick a winner, one `makeConcept` action runs the deconstruction and the rebuild back-to-back and writes both rows. Brand docs are fetched *while* Gemini reads the creative. **The image is deliberately not part of it**: `shootImage(rebuildId)` runs from the client once the copy is on screen, because Gemini's shoot is the slowest, least-useful half and a buyer judges the concept on the words. A video source still gets copy (no marks — deconstruction is image-only), and a failed vision read degrades to copy-without-marks rather than failing the concept. Grounding gates are unchanged. |
+| Build-in-Library (3a+3b) | **Added 2026-07-22.** `LibraryDesk` hosts the grid *and* the build panel: click an ad → pick a grounded brand → `makeConcept` (`library/concept-actions.ts`) writes the replication. Batch-delete select mode still lives in the same component; picking-to-build and picking-to-delete are separate modes so they can't collide. Grounding gates unchanged. |
+| Generation speed | **The user's explicit trade (2026-07-22): "I don't care if quality suffers, make it fast."** Measured 178s → **51.6s** on the same source ad, same pinned model. Three levers: `effort: 'low'`; **no fresh deconstruction** in the build path (a replication works from the source's own copy — the vision read cost ~30s before Claude wrote a word; an *existing* one is still passed through free); **no image inline** (`shootImage` runs from the client after the copy renders). Further speed means a smaller model — not done, since `claude-opus-4-8` is pinned and that's a bigger call than an effort setting. |
+| Fast mode | **Unavailable on this workspace.** Verified live 2026-07-22: `speed: 'fast'` 429s with *"rate limit of 0 fast mode input tokens per minute"*. It would be the ideal lever (same model, up to 2.5x output tok/s) so the code path is kept behind **`CLAUDE_FAST_MODE=1`**, off by default — left on, it cost a wasted round-trip before every generation. Turn it on only if that capacity is actually bought. |
+| Structured output | **`messages.parse` is not used — the rebuild streams.** `parse` is non-streaming, so it capped at 16,000 tokens and a long source blew through it mid-JSON; the user saw *"Unterminated string in JSON at position 3628"*, which reads like a parser bug and is actually a token limit. Now `messages.stream(...).finalMessage()` at 32,000, with the JSON parsed and Zod-validated by hand and a truncation-specific error message. Don't revert to `parse` for convenience. |
 | Copy fidelity | **Changed 2026-07-22** (`lib/rebuild.ts`). The prompt used to say "borrow structure, never substance," which produced a *fresh* ad in the same spirit — the user tested it and said it came out "completely different." It now replicates the source beat by beat: same lead, same paragraph count and order, same length and rhythm, same turn, same closer, with only the substance swapped. **The claim rule did not move** — claims still come only from our research, because copying a competitor's ingredient claim onto our product is a compliance problem, not a style choice. A new `mirror` field returns a "theirs → ours" map so a buyer can check the replication at a glance; it has no column, so it rides in `rebuilds.notes` (no migration needed). Verified live: the rebuild mirrored the source liver ad's confessional structure beat for beat (dismissed warnings, second family member, wrong-product-then-right turn, twin P.S.) with our magnesium mechanism and no invented numbers. |
-| Run-length chips | **Added 2026-07-22.** `7d+ / 14d+ / 30d+ / 60d+` on `/make` and `/library` (`?days=`), filtering on `run_days` — the Ad Library's date chips, on the one signal we have. Sort relabelled **"Longest running"**. Still no impressions filter and never will be (hard constraint 1): Meta publishes impressions for political/issue ads only, so the Ad Library page being copied from doesn't show them for ecom either. |
+| Run-length chips | **Added 2026-07-22.** `7d+ / 14d+ / 30d+ / 60d+` on `/library` (`?days=`), filtering on `run_days` — the Ad Library's date chips, on the one signal we have. Sort relabelled **"Longest running"**. Still no impressions filter and never will be (hard constraint 1): Meta publishes impressions for political/issue ads only, so the Ad Library page being copied from doesn't show them for ecom either. |
 | Deconstruct (3a) | End-to-end on a real ad: Gemini located 8 elements, Claude marked 5, ~30s. `npm run verify:deconstruct [adId]`. |
 | Rebuild (3b) | Proven end-to-end on real NAC600 docs (see Known open). Editorial 3-column screen: source + deconstruction, our generated creative, editable headline/alternates/copy/CTA. Grounding gated three ways (action, `lib/rebuild.ts`, DB check). Pinned models: `claude-opus-4-8`, image `gemini-2.5-flash-image` — **NOT** the `gemini-3-pro-image`/`imagen-4.0-*` CLAUDE.md once named; those 503/404'd on 2026-07-16. `npm run verify:rebuild`. |
 | Brand | Doc upload → `brand-docs` bucket → text extracted (PDF via Gemini, DOCX via `mammoth`, txt/md direct) → `brand_docs` rows, versioned per kind. Unreadable files are rejected, not stored. |
@@ -285,10 +291,11 @@ production at **https://teardown-kohl.vercel.app**.
   2026-07-22 on the real NAC/liver source ad (~2,000 words): Gemini vision +
   Claude's structural read ~30s, then **Claude's copy pass 178s**, then Gemini's
   image ~9–20s. `/rebuild/[adId]` had *no* `maxDuration` at all and would 504
-  mid-rebuild on long copy in prod. Now `300` on `/make` and `/rebuild/[adId]`,
+  mid-rebuild on long copy in prod. Now `300` on `/library` and `/rebuild/[adId]`,
   `120` on `/deconstruct/[adId]` (300 is the ceiling Vercel allows on every
-  plan). Don't quote "about 45 seconds" in UI copy — a long-copy source is
-  minutes, and the UI says so.
+  plan). `/library` needs it too — it hosts the build action now. Speed work has
+  since brought the copy pass to ~52s, but keep the headroom: it is the ceiling
+  that matters, not the average.
 
 ### Pivot — the Library is now upload-driven (2026-07-17)
 
