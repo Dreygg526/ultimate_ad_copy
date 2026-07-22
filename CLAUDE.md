@@ -236,7 +236,7 @@ Mockup (approved direction): https://claude.ai/code/artifact/b259e888-3b9a-44e3-
 
 ## State of the build
 
-Last updated 2026-07-18.
+Last updated 2026-07-23.
 
 ### Resolved — do not re-litigate
 
@@ -270,6 +270,43 @@ Last updated 2026-07-18.
 | Brand | Doc upload → `brand-docs` bucket → text extracted (PDF via Gemini, DOCX via `mammoth`, txt/md direct) → `brand_docs` rows, versioned per kind. Unreadable files are rejected, not stored. |
 | Review (3c) | Table queue with Waiting/Mine/All filter (**defaults to All** on landing; `?show=waiting\|mine` override); per-rebuild state machine draft→waiting→{approved,changes_asked}→waiting, writing `review_events`. Concurrency-guarded transitions. The rebuild detail (`/rebuild/[adId]`, where the queue links) shows the source ad's "As it ran" headline/body/CTA so a reviewer sees what was borrowed. |
 | Settings / auth | Invite by email, resend, remove, self-service password, sign out. See § Auth. In-app pieces wired and clean. **Emailed invite/reset links require the `token_hash` email templates** (§ Auth dependency) — with the default `{{ .ConfirmationURL }}` templates the invitee lands on `/signin?error=link` (PKCE code / implicit fragment the server can't exchange). `/auth/confirm` now logs the exact failure (`[auth/confirm] …`) to the function logs. |
+
+### Conformance — audited against live data, 2026-07-23
+
+Checked the deployed app against the source doc *and* against Mickey's Slack
+revisions (he is the buyer whose sign-off matters; where the two conflict, he
+wins and it is noted). Counts came from the live DB, not from memory.
+
+**Mickey's revisions — all met except one.** Simplified to one screen; deconstruct
+and rebuild collapsed into one click (then Deconstruct deleted outright); 178s →
+~49s per concept; 7d/14d/30d/60d chips; copy now replicates the source instead of
+writing a fresh ad. **Not met, and not meetable: "then highest impression."**
+Meta publishes impressions for political/issue ads only — the Ad Library page he
+is copying the filter from does not show them for ecom ads either, and Atria has
+none. Sorted by longest-running instead. **He has not been told this yet.** That
+conversation is still owed; do not let the UI imply reach.
+
+**Source doc — met:** goal (rebuild image/headline/copy on our brand); prep
+(NAC has brand + audience + mechanism docs loaded and readable); step 1 for the
+pages actually pasted; step 2 format filters (40 images / 21 videos across the
+library); step 3 replicate + review.
+
+**Source doc — open gaps, all real:**
+
+| Gap | Detail |
+|---|---|
+| Third advertiser page not loaded | Doc lists three pages. `m1035006909703902` (Steven West, 30) and `m875968852276944` (Michelle Bennett, 31) are in; **`984611441392190` is not**. One paste fixes it. |
+| "Actively hunt for more" | You can only paste pages you already know. `searchAds()` exists in `lib/atria.ts` and is unused — discovery was never wired up. |
+| "Active **and** inactive" ads | The page-URL pull scans `status:'active'` only, so inactive winners never enter the Library. **This is a deliberate tension, not an oversight**: Winner Score requires `active` because inactive ads have a median run of 1 day (hard constraint 1). Pulling inactive would fill the Library with things that failed. Raise it with the user before changing it. |
+| Impressions by date (all-time / 90 / 30) | Impossible — see above. Replaced by run-length chips + Winner Score. |
+| "Deconstruct" as a named step | Deleted 2026-07-23 on Mickey's explicit call. The doc still names it; the boss overrode the doc. |
+
+**Blocking the team, not the build:** members are `ai_support@thestandardlab.com`
+(admin) and one personal Gmail. **Rob and Nemanja are not in the workspace**, and
+they cannot be invited until the Supabase `token_hash` email templates are set
+(§ Auth dependency, and item 0 under Next). The Review queue is a queue of one
+until then, so "can the team use it?" is currently **no** — for a config reason,
+not a code one.
 
 ### Deployment (Vercel) — live 2026-07-17
 
@@ -364,14 +401,31 @@ build-state table. Remaining, roughly in order:
    winner-percentile is computed over the scanned ≤200-ad sample, not the brand's
    full active cohort, so for a brand with >200 active ads the score is
    approximate; and the whole-page transcript/video path is unchanged.
-5. **Optional Atria discovery search** — `searchAds()` is still in `lib/atria.ts`
-   and unused. If automated discovery is ever wanted back, wire it as an in-app
-   "pull into Library" action rather than a tracked-brand auto-sync.
+5. **Atria discovery search — now a known doc gap, not just an option.** The doc
+   says "actively hunt for more" pages; today you can only paste a page you
+   already know. `searchAds()` is still in `lib/atria.ts` and unused. Wire it as
+   an in-app "pull into Library" action if this is picked up — never as a
+   tracked-brand auto-sync (that is the retired model).
+5a. **Third doc page is not loaded** — `984611441392190`. One paste into Add to
+   Library pulls its winners like the other two.
+5b. **Inactive ads never enter the Library.** The doc asks for "active and
+   inactive"; the page-URL pull scans active only, on purpose (see the
+   conformance table). Changing it means deciding what a "winner" means for an
+   ad that already stopped — a product call, not a code change.
 6. **Legacy Atria rows** (~3,600, source `atria`) are hidden, not purged. Purge or
    add a toggle if they're in the way — the user's call.
 
 ### Known open
 
+- **The impressions conversation is owed to Mickey.** He asked for a "highest
+  impression" sort twice and has been given longest-running without being told
+  why. He is a media buyer; he will read a score of 100 as reach unless someone
+  says otherwise in words. The UI already carries the note (hard constraint 1) —
+  that is not the same as him having heard it.
+- **Nobody has clicked Build in production except the developer.** The path is
+  verified end-to-end locally (`npm run verify:rebuild`, ~49s) and the deploy is
+  green, but Rob, Nemanja and Mickey have not used the live app. Five rebuild
+  rows exist, all from testing.
 - Grounding-produces-on-brand-copy is now **proven** on real TheStandardLab
   NAC600 docs: the rebuild borrowed the source liver ad's confessional structure
   but swapped in our glutathione/NAC/NAD+ mechanism and avoided the source's
