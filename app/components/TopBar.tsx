@@ -6,6 +6,7 @@ import { signOut } from '@/app/auth/actions';
 
 // Client only because the active-tab state reads the pathname.
 const SCREENS = [
+  { href: '/make', label: 'Make' },
   { href: '/library', label: 'Library' },
   { href: '/deconstruct', label: 'Deconstruct' },
   { href: '/rebuild', label: 'Rebuild' },

@@ -36,7 +36,7 @@ const RebuildSchema = z.object({
   headline: z
     .string()
     .describe(
-      "The headline as it would run. One line. It must carry OUR mechanism, not the source ad's.",
+      "The headline as it would run. One line. Mirror the source headline's shape, length and rhythm as closely as you can — it must carry OUR mechanism, not the source ad's.",
     ),
   alternates: z
     .array(z.string())
@@ -48,7 +48,7 @@ const RebuildSchema = z.object({
   copy: z
     .string()
     .describe(
-      'The body copy as it would run. Match the source ad\'s structural moves — its lead, its rhythm, its turn — but the claims, mechanism, and proof are ours and come only from the research below.',
+      "The body copy as it would run. Mirror the source ad paragraph by paragraph, at roughly the same total length and the same sentence rhythm: same lead, same order of beats, same placement of the turn, same closer. Only the substance changes — product, mechanism, claims and proof are ours and come only from the research below.",
     ),
   cta: z
     .string()
@@ -64,6 +64,15 @@ const RebuildSchema = z.object({
     .string()
     .describe(
       'One or two sentences naming the structural move taken from the source ad and what substance replaced it, so a buyer can see what was replicated and what was ours.',
+    ),
+  // The buyer's proof that the rebuild actually mirrors the source rather than
+  // being a fresh ad. Without this you have to read both in full to tell.
+  mirror: z
+    .array(z.string())
+    .min(3)
+    .max(8)
+    .describe(
+      'Paragraph-by-paragraph map, in order, one line each, formatted "theirs → ours": a short quote or description of the source beat, then what you wrote in its place. This is how a buyer checks the replication at a glance.',
     ),
 });
 
@@ -103,14 +112,25 @@ export interface RebuildResult extends RebuildDraft {
 const SYSTEM = `You rebuild winning native ads for The Standard Lab's media buyers.
 
 You are given a competitor's ad that is working, and our own brand, audience, and
-mechanism research. Your job is to take what makes the source ad work and rebuild
-it as OUR ad.
+mechanism research. Your job is to REPLICATE that ad as closely as you can with our
+substance swapped in. Not a new ad in the same spirit — the same ad, rebuilt.
 
-Borrow structure, never substance. The lead type, the rhythm, the placement of the
-turn, the register — those are fair game, and they are why we picked this ad. The
-claims, the mechanism, the proof, the audience's stakes: those come only from the
-research below. Never carry over a claim, a product, an ingredient, a statistic, or
-a mechanism from the source ad.
+Replicate the form, replace the substance. Work through the source ad beat by beat
+and write our version of each beat in the same position. Same lead. Same number of
+paragraphs, in the same order. Roughly the same length overall and the same sentence
+rhythm — if theirs opens with a four-word fragment, ours opens with a four-word
+fragment. Same placement of the turn. Same register, same person, same tense, same
+closer. If the source repeats a phrase, repeat ours. If it uses a list, use a list of
+the same length. A buyer should be able to lay the two side by side and see the
+source's skeleton under our words.
+
+What must NOT carry over is substance: the claims, the mechanism, the proof, the
+product, the ingredients, the statistics, the customer stories. Those come only from
+the research below. Copying a competitor's claim onto our product is a compliance
+problem, not a style choice — so mirror the sentence that carried their claim, and
+put a claim of ours that the research actually supports in its place. If the research
+supports nothing that fits that slot, write the closest true thing at the same length
+rather than inventing or dropping the beat.
 
 Every factual claim you make must trace to the research. If the research does not
 support a claim, do not make it — write around it. Do not invent studies, numbers,
@@ -131,7 +151,8 @@ function buildPrompt(input: RebuildInput): string {
   };
 
   return [
-    'THE SOURCE AD — a competitor ad that is winning. Structure only.',
+    'THE SOURCE AD — a competitor ad that is winning. Replicate its form exactly;',
+    'replace its substance with ours.',
     `Brand: ${ad.brand_name ?? 'unknown'}`,
     `Headline: ${ad.title ?? '(none)'}`,
     `Body: ${ad.body ?? '(none)'}`,
@@ -158,8 +179,10 @@ function buildPrompt(input: RebuildInput): string {
     ...section('AUDIENCE', 'audience'),
     ...section('MECHANISM', 'mechanism'),
     '',
-    `Write the rebuild for ${brandName}. Borrow the source ad's structure; take`,
-    'every claim from the research above.',
+    `Write the rebuild for ${brandName}. Go through the source ad above beat by beat`,
+    'and write our version of each beat in the same position, at the same length, in',
+    'the same rhythm. Every claim comes from the research above. Then fill in the',
+    'mirror field so a buyer can check the replication line by line.',
   ].join('\n');
 }
 

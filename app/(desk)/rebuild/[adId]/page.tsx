@@ -1,5 +1,12 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
+
+// runRebuild is a server action on this route: Claude's copy pass alone measured
+// 178s on a ~2,000-word source ad, plus ~20s for Gemini's image. With no
+// maxDuration set this inherited a limit far below that and 504'd mid-rebuild on
+// long copy. Same 300s ceiling as /make.
+export const maxDuration = 300;
+
 import { createClient } from '@/lib/supabase/server';
 import { Clamp } from '@/app/components/Clamp';
 import { RebuildButton } from './RebuildButton';
@@ -244,7 +251,8 @@ export default async function RebuildAdPage({
               <p className="eyebrow">Ours</p>
               <p className="rail-note" style={{ marginTop: 8 }}>
                 Not rebuilt yet. Pick a grounded brand above — Claude writes the headline and copy
-                against its research, then Gemini shoots the creative. About 45 seconds.
+                against its research, then Gemini shoots the creative. One to three minutes,
+                depending on how long the source ad&rsquo;s copy is.
               </p>
             </div>
           </aside>

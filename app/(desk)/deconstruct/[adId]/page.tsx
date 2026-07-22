@@ -6,6 +6,10 @@ import { Clamp } from '@/app/components/Clamp';
 import { DeconstructButton } from './DeconstructButton';
 import { CopyId } from './CopyId';
 
+// runDeconstruction is a server action on this route: Gemini's read plus
+// Claude's structural pass measured ~30s. Headroom for a slow CDN or a long ad.
+export const maxDuration = 120;
+
 // Step 3a: Gemini reads the image, Claude reads the structure.
 // The score is never shown bare — the dates behind it and the note that it is
 // not reach travel with it. See CLAUDE.md; this is not decoration.

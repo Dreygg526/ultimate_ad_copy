@@ -1716,3 +1716,101 @@ input[type='file'].input {
   padding: 5px 9px;
   font-size: 10px;
 }
+
+/* ---------- Make: the one-screen workflow ---------- */
+/* Pick on the left, concept on the right. The right column stays put while the
+   grid scrolls, so the copy is readable without losing the source. */
+
+.make-split {
+  display: grid;
+  grid-template-columns: 1fr minmax(330px, 420px);
+  gap: 24px;
+  align-items: start;
+}
+@media (max-width: 1100px) {
+  .make-split {
+    grid-template-columns: 1fr;
+  }
+}
+
+.make-grid {
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 14px;
+}
+
+.make-out {
+  position: sticky;
+  top: 18px;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: 2px;
+  padding: 14px 16px 18px;
+  max-height: calc(100vh - 90px);
+  overflow-y: auto;
+}
+
+.make-bar {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--rule);
+}
+.make-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+}
+.make-field select {
+  font: inherit;
+  font-size: 12px;
+  padding: 6px 8px;
+  border: 1px solid var(--rule);
+  border-radius: 2px;
+  background: var(--proof);
+  color: var(--ink);
+  width: 100%;
+}
+.make-go {
+  white-space: nowrap;
+}
+
+.make-copy {
+  margin-top: 8px;
+  font-size: 13px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+}
+
+.make-alts {
+  margin: 8px 0 0;
+  padding-left: 16px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--ink-soft);
+}
+
+/* The replication check: theirs → ours, in the source's own order. */
+.make-mirror {
+  margin: 8px 0 0;
+  padding-left: 0;
+  list-style: none;
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--ink-soft);
+}
+.make-mirror li {
+  padding: 4px 0 4px 8px;
+  border-left: 2px solid var(--rule);
+  margin-bottom: 4px;
+}
+
+/* Run-length window chips (7d+ / 14d+ / 30d+ / 60d+) */
+.daybar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}

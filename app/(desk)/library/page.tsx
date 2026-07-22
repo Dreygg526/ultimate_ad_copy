@@ -26,8 +26,14 @@ type Search = {
   status?: string; // live | ended
   from?: string; // run-date window (YYYY-MM-DD) — NOT impressions
   to?: string;
+  days?: string; // run-length window: 7 | 14 | 30 | 60 (the Ad Library's chips)
   sort?: string; // score | recent
 };
+
+// The Ad Library's date chips, filtering on how long an ad has been RUNNING —
+// the signal we actually have. There is no impressions filter to build (hard
+// constraint 1): Meta publishes none for ecom ads and neither does Atria.
+const WINDOWS = [7, 14, 30, 60] as const;
 
 const PLATFORMS: { id: string; label: string }[] = [
   { id: 'facebook', label: 'Facebook' },
@@ -88,6 +94,9 @@ export default async function LibraryPage({
   // `to`. Active ads carry a ~now end_date, so they pass the `from` bound.
   if (sp.from) q = q.gte('end_date', sp.from);
   if (sp.to) q = q.lte('start_date', `${sp.to}T23:59:59`);
+  // Run-length window (7d+ / 14d+ / …): the ad has been live at least that long.
+  const days = WINDOWS.find((w) => String(w) === sp.days) ?? null;
+  if (days) q = q.gte('run_days', days);
 
   // Free-text over title / ids. Strip PostgREST-significant chars so the search
   // string can't break the .or() filter.
@@ -297,6 +306,23 @@ export default async function LibraryPage({
           </p>
 
           <div className="lib-controls">
+            {/* Run-length chips, straight off the Ad Library. Not impressions —
+                see the rail note and hard constraint 1. */}
+            <div className="daybar">
+              <Link href={qs({ days: undefined })} className={`chip${!days ? ' is-on' : ''}`}>
+                any
+              </Link>
+              {WINDOWS.map((w) => (
+                <Link
+                  key={w}
+                  href={qs({ days: days === w ? undefined : String(w) })}
+                  className={`chip${days === w ? ' is-on' : ''}`}
+                >
+                  {w}d+
+                </Link>
+              ))}
+            </div>
+
             {/* Filters — SSR popover via <details>, submits a GET form. */}
             <details className="pop">
               <summary className="chip">
@@ -308,6 +334,7 @@ export default async function LibraryPage({
                 {sp.brand && <input type="hidden" name="brand" value={sp.brand} />}
                 {sp.q && <input type="hidden" name="q" value={sp.q} />}
                 {sp.sort && <input type="hidden" name="sort" value={sp.sort} />}
+                {days && <input type="hidden" name="days" value={String(days)} />}
 
                 <label className="pop-field">
                   <span className="eyebrow">Platform</span>
@@ -373,14 +400,14 @@ export default async function LibraryPage({
             {/* Sort by — Winner Score replaces Meta's impressions sort (no reach data). */}
             <details className="pop">
               <summary className="chip">
-                Sort: {sort === 'recent' ? 'Most recent' : 'Winner Score'}
+                Sort: {sort === 'recent' ? 'Most recent' : 'Longest running'}
               </summary>
               <div className="pop-panel">
                 <Link
                   className={`pop-opt${sort === 'score' ? ' is-on' : ''}`}
                   href={qs({ sort: undefined })}
                 >
-                  <span className="pop-dot" /> Winner Score: high to low
+                  <span className="pop-dot" /> Longest running (Winner Score)
                 </Link>
                 <Link
                   className={`pop-opt${sort === 'recent' ? ' is-on' : ''}`}
